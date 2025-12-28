@@ -63,3 +63,5 @@ Thumbs.db
 # Ollama
 /llama-server
 /server.exe
+
+OllamaSetup.exe
