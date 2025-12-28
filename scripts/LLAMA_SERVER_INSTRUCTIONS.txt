@@ -1,0 +1,34 @@
+LLAMA.CPP LOCAL SERVER - QUICK INSTRUCTIONS
+
+1) Download the GGUF model (example):
+
+   python scripts/download_qwen2_gguf.py --repo <REPO_ID> --filename qwen2-7b-instruct-q4_k_m.gguf --dest models/qwen2-7b
+
+   Replace <REPO_ID> with the HF repo that hosts the GGUF file. Some repos require a HF token.
+
+2) Build / obtain `llama.cpp` server binary (see https://github.com/ggerganov/llama.cpp).
+
+3) Start the server from the `llama.cpp` folder (example):
+
+   ./server -m /absolute/path/to/models/qwen2-7b/qwen2-7b-instruct-q4_k_m.gguf --port 8080 --ctx-size 4096 --threads 8
+
+   On Windows you may run the `server.exe` equivalent.
+
+4) Confirm API is reachable:
+
+   curl -sS http://127.0.0.1:8080/v1/models
+
+5) If you run the server on a different host/port, set the environment variable before starting the backend:
+
+   PowerShell:
+     $env:LLAMA_URL = 'http://<host>:<port>/v1/chat/completions'
+
+   Linux/macOS:
+     export LLAMA_URL='http://<host>:<port>/v1/chat/completions'
+
+6) Restart the backend after changing `LLAMA_URL` so it picks up the new value.
+
+Notes:
+- The project now calls the local server directly (HTTP) for chat completions; LangChain/OpenAI usage has been removed for this path.
+- The RAG retrieval uses sentence-transformers embeddings (model: all-MiniLM-L6-v2) and a safe Python retriever.
+- Downloading GGUF models may be very large (many GB) — ensure you have disk space.
