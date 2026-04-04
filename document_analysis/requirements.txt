@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+pymupdf
+python-docx
+easyocr
+requests
+python-dotenv
+groq
