@@ -1,7 +1,7 @@
 # Document Analysis API
 
 ## Live URL
-Live URL: pending deployment on Render
+Live URL: not deployed yet. Update this after deploying on Render.
 
 ## Setup Instructions
 1. Clone the repository:
@@ -13,6 +13,14 @@ Live URL: pending deployment on Render
    ```bash
    pip install -r requirements.txt
    ```
+3. Copy environment template:
+   ```bash
+   cp .env.example .env
+   ```
+4. Set environment values in `.env` or in Render:
+   - `API_KEY=nitant123`
+   - `GROQ_API_KEY=<your_actual_groq_api_key>`
+
 3. Copy environment template:
    ```bash
    cp .env.example .env
@@ -87,18 +95,14 @@ curl -X POST "LIVE_URL/analyze-document" \
 ```
 
 ## Render Deployment
-1. Push project to GitHub.
+This project includes `render.yaml` so Render can automatically configure the service when connected.
+
+1. Push the `document_analysis` project to GitHub.
 2. Create a new Web Service on Render.
 3. Connect the GitHub repository.
-4. Set build command:
-   ```bash
-   pip install -r requirements.txt
-   ```
-5. Set start command:
-   ```bash
-   uvicorn main:app --host 0.0.0.0 --port $PORT
-   ```
-6. Add environment variables:
+4. If Render does not auto-detect the service, set the root directory to `document_analysis`.
+5. Render will use `render.yaml` to configure build/start commands.
+6. Add environment variables in the Render dashboard:
    - `API_KEY=nitant123`
    - `GROQ_API_KEY=<your_actual_key>`
 7. Deploy and wait for Render to finish.

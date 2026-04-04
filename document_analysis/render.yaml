@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: document-analysis-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: API_KEY
+        value: nitant123
+      - key: GROQ_API_KEY
+        value: <your_actual_groq_api_key>
