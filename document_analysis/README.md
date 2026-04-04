@@ -1,25 +1,76 @@
 # Document Analysis API
 
-## Live API
-The main endpoint is:
-POST /analyze-document
+## Live URL
+Live URL: pending deployment on Render
 
-This endpoint accepts multipart file uploads and returns AI-powered document analysis in JSON format.
+## Setup Instructions
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Nitant28/MindDoc-AI.git
+   cd "MindDoc AI - RAG Multi-Tenant"/document_analysis
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Copy environment template:
+   ```bash
+   cp .env.example .env
+   ```
+4. Edit `.env` and set:
+   - `API_KEY=nitant123`
+   - `GROQ_API_KEY=<your_actual_key>`
+5. Run locally:
+   ```bash
+   uvicorn main:app --host 0.0.0.0 --port 8000
+   ```
 
-## Authentication
-All requests require an API key in the Authorization header:
-```
-Authorization: Bearer <API_KEY>
-```
+## Architecture Overview
+This project is a modular FastAPI application for document analysis.
+- `main.py`: API routes, auth validation, file validation, pipeline orchestration.
+- `services/document_processor.py`: Extracts text from PDF, DOCX, and image files.
+- `services/ai_analyzer.py`: Sends document text to the Groq API for structured analysis.
+- `services/fallback_analyzer.py`: Uses regex and keyword analysis when Groq is unavailable.
+- `utils/`: Text cleaning and chunking helper utilities.
+- `models/response_models.py`: Defines the JSON response schema.
+
+## Tech Stack
+- Python 3.11+
+- FastAPI
+- Uvicorn
+- PyMuPDF
+- python-docx
+- EasyOCR
+- Requests
+- python-dotenv
+- Groq API
+
+## AI Tools Used
+- Groq API for document analysis and extraction
+- ChatGPT for prompt design and documentation guidance
+- GitHub Copilot for coding assistance
+
+## Known Limitations
+- Requires a valid `GROQ_API_KEY` for full AI analysis.
+- If Groq is unavailable, the app falls back to rule-based extraction.
+- EasyOCR runs on CPU in this environment and can be slow for large images.
+- Document analysis is not yet live on a public URL from this execution environment.
+
+## API Endpoints
+- `GET /health`
+  - Response: `{"status": "ok"}`
+- `POST /analyze-document`
+  - Requires `Authorization: Bearer <API_KEY>`
+  - Accepts PDF, DOCX, PNG, JPG, JPEG, BMP, TIFF
 
 ## Example curl
 ```bash
 curl -X POST "LIVE_URL/analyze-document" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Authorization: Bearer nitant123" \
   -F "file=@sample.pdf"
 ```
 
-## Response Format
+## Expected Response Format
 ```json
 {
   "status": "success",
@@ -35,30 +86,22 @@ curl -X POST "LIVE_URL/analyze-document" \
 }
 ```
 
-## AI Tools Used
-- Groq (LLaMA/Mixtral models)
-- ChatGPT (for prompt engineering)
-- Copilot (for code assistance)
-
-## Deployment Steps
-
-1. Push this project to GitHub
-2. Create a new Web Service on Render
-3. Connect your GitHub repository
-4. Set build command: `pip install -r requirements.txt`
-5. Set start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+## Render Deployment
+1. Push project to GitHub.
+2. Create a new Web Service on Render.
+3. Connect the GitHub repository.
+4. Set build command:
+   ```bash
+   pip install -r requirements.txt
+   ```
+5. Set start command:
+   ```bash
+   uvicorn main:app --host 0.0.0.0 --port $PORT
+   ```
 6. Add environment variables:
-   - `API_KEY`: Your chosen API key
-   - `GROQ_API_KEY`: Your Groq API key
-7. Deploy and get your live URL
-
-## Local Development
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your keys
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
+   - `API_KEY=nitant123`
+   - `GROQ_API_KEY=<your_actual_key>`
+7. Deploy and wait for Render to finish.
 
 ## Testing
 ```bash
