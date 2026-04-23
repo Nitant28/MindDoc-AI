@@ -31,9 +31,7 @@ except ImportError:
     cohere = None
     COHERE_AVAILABLE = False
 
-try:
-    TOOLS_AVAILABLE = False
-
+TOOLS_AVAILABLE = False
 
 from typing import Optional
 
