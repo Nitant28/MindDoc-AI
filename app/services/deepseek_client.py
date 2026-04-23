@@ -25,10 +25,10 @@ class DeepSeekClient:
         else:
             raise Exception(f"DeepSeek API error: {response.status_code} - {response.text}")
 
-def generate_with_deepseek(prompt: str, model: str = "deepseek-chat", max_tokens: int = 1024) -> str:
+def generate_with_deepseek(prompt: str, model: str = "deepseek-chat", max_tokens: int = 1024, temperature: float = 0.4) -> str:
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         raise Exception("DEEPSEEK_API_KEY not set")
     client = DeepSeekClient(api_key)
     messages = [{"role": "user", "content": prompt}]
-    return client.chat_completion(messages, model, max_tokens)
+    return client.chat_completion(messages, model, max_tokens, temperature)

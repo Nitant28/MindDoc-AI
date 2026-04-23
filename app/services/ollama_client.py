@@ -8,12 +8,37 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _http_generate(prompt: str, model: str, max_tokens: int = 512, timeout: int = 120) -> str:
-    api_url = os.environ.get('OLLAMA_API_URL', 'http://127.0.0.1:11434/api/generate')
+def _resolve_tags_url(api_url: str) -> str:
+    api_url = api_url.rstrip('/')
+    if api_url.endswith('/api/generate'):
+        return api_url[:-len('/api/generate')] + '/api/tags'
+    if api_url.endswith('/generate'):
+        return api_url[:-len('/generate')] + '/tags'
+    return api_url + '/api/tags'
+
+
+def _get_available_models(api_url: str, timeout: int = 2) -> list:
+    tags_url = _resolve_tags_url(api_url)
+    try:
+        response = requests.get(tags_url, timeout=timeout)
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, dict) and 'models' in data and isinstance(data['models'], list):
+            return [m.get('name') for m in data['models'] if isinstance(m, dict) and 'name' in m]
+        if isinstance(data, list):
+            return [m.get('name') for m in data if isinstance(m, dict) and 'name' in m]
+    except Exception as e:
+        logger.debug('Failed to fetch available Ollama models from %s: %s', tags_url, e)
+    return []
+
+
+def _http_generate(prompt: str, model: str, max_tokens: int = 512, temperature: float = 0.4, timeout: int = 120, api_url: str | None = None) -> str:
+    api_url = api_url or os.environ.get('OLLAMA_API_URL', 'http://127.0.0.1:11434/api/generate')
     payload = {
         'model': model,
         'prompt': prompt,
         'max_tokens': max_tokens,
+        'temperature': temperature,
     }
     try:
         # Ollama may stream newline-delimited JSON objects. Try normal JSON first,
@@ -41,18 +66,24 @@ def _http_generate(prompt: str, model: str, max_tokens: int = 512, timeout: int 
                     # not a JSON line, append raw
                     parts.append(line)
                     continue
-                # Ollama stream uses `response` and `done`/`done_reason`
-                if 'response' in obj and obj.get('response'):
-                    parts.append(obj.get('response', ''))
+                # Ollama stream uses `response` or `thinking`, with `done`/`done_reason`
+                if isinstance(obj, dict):
+                    if 'response' in obj and obj.get('response'):
+                        parts.append(obj.get('response', ''))
+                    elif 'thinking' in obj and obj.get('thinking'):
+                        parts.append(obj.get('thinking', ''))
+                    elif 'text' in obj and obj.get('text'):
+                        parts.append(obj.get('text', ''))
                 if obj.get('done'):
                     break
-            return ''.join(parts)
+            output = ''.join(parts).strip()
+            return output if output else ''
     except Exception as e:
         logger.debug('HTTP ollama generate failed: %s', e)
         raise
 
 
-def _cli_generate(prompt: str, model: str, max_tokens: int = 512, timeout: int = 120) -> str:
+def _cli_generate(prompt: str, model: str, max_tokens: int = 512, temperature: float = 0.4, timeout: int = 120) -> str:
     # Prefer `ollama` on PATH
     exe = shutil.which('ollama')
     if not exe:
@@ -95,15 +126,28 @@ def _cli_generate(prompt: str, model: str, max_tokens: int = 512, timeout: int =
     raise RuntimeError('All ollama CLI attempts failed')
 
 
-def generate_with_ollama(prompt: str, model: str = None, max_tokens: int = 512, timeout: int = 120) -> str:
+def generate_with_ollama(prompt: str, model: str = 'gpt-oss:120b-cloud', max_tokens: int = 512, temperature: float = 0.4, timeout: int = 120) -> str:
     # Default model can be overridden via OLLAMA_MODEL env var or function arg
-    model = model or os.environ.get('OLLAMA_MODEL', 'deepseek-v3.1:671b-cloud')
+    api_url = os.environ.get('OLLAMA_API_URL', 'http://127.0.0.1:11434/api/generate')
+    model = model or os.environ.get('OLLAMA_MODEL', 'gpt-oss:120b-cloud')
+
+    available_models = _get_available_models(api_url)
+    if available_models:
+        if model not in available_models:
+            logger.warning('Configured Ollama model %s is not available. Falling back to first available model: %s', model, available_models[0])
+            model = available_models[0]
+        else:
+            logger.debug('Configured Ollama model %s is available', model)
+    else:
+        logger.debug('Could not retrieve available Ollama models from %s; using configured model %s', api_url, model)
 
     # Try HTTP API first (recommended if `ollama serve` is running)
     try:
-        return _http_generate(prompt, model, max_tokens=max_tokens, timeout=timeout)
-    except Exception:
-        logger.debug('HTTP generate failed, falling back to CLI')
+        return _http_generate(prompt, model, max_tokens=max_tokens, temperature=temperature, timeout=timeout, api_url=api_url)
+    except Exception as e:
+        logger.warning('HTTP generate failed, falling back to CLI: %s', e)
+    # Then try CLI
+    return _cli_generate(prompt, model, max_tokens=max_tokens, temperature=temperature, timeout=timeout)
 
     # Then try CLI
     try:

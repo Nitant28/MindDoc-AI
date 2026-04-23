@@ -1,28 +1,37 @@
-import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import Dashboard from './pages/Dashboard';
-import Upload from './pages/Upload';
-import Chat from './pages/Chat';
-import Settings from './pages/Settings';
-import Layout from './components/Layout';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Suspense, lazy } from 'react';
+import { Layout } from './components/Layout';
+import './index.css';
 
-function App() {
-  const token = localStorage.getItem('token');
+const Landing = lazy(() => import('./pages/Landing'));
+const Register = lazy(() => import('./pages/Register'));
+const Login = lazy(() => import('./pages/Login'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Upload = lazy(() => import('./pages/Upload'));
+const Chat = lazy(() => import('./pages/Chat'));
+const Reminders = lazy(() => import('./pages/Reminders'));
+const FineTuneDashboard = lazy(() => import('./pages/FineTuneDashboard'));
+const Settings = lazy(() => import('./pages/Settings'));
 
+export default function App() {
   return (
     <Router>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
-        <Route path="/upload" element={<Layout><Upload /></Layout>} />
-        <Route path="/chat" element={<Layout><Chat /></Layout>} />
-        <Route path="/settings" element={<Layout><Settings /></Layout>} />
-        <Route path="/" element={token ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />} />
-      </Routes>
+      <Suspense fallback={<div className="w-screen h-screen flex items-center justify-center">Loading...</div>}>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/login" element={<Login />} />
+          <Route element={<Layout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/upload" element={<Upload />} />
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/reminders" element={<Reminders />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/finetune" element={<FineTuneDashboard />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </Suspense>
     </Router>
   );
 }
-
-export default App;

@@ -8,20 +8,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# SQLite requires special handling for foreign keys and connection pooling
+
+# Use default engine for PostgreSQL
 engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
     echo=False
 )
-
-# Enable foreign key support for SQLite
-@event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_conn, connection_record):
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=True, bind=engine, expire_on_commit=False)
 Base = declarative_base()
@@ -46,6 +38,7 @@ class Document(Base):
     content = Column(Text)
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
     tenant = relationship("Tenant")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"

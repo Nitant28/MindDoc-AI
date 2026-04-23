@@ -1,10 +1,14 @@
+
 from fastapi import APIRouter, Depends, HTTPException
+import logging
 from sqlalchemy.orm import Session
 from app.database.models import get_db, Tenant, User
 from app.services.auth_service import create_user, get_user_by_email, create_tenant, update_user
 from app.core.security import verify_password, create_access_token
 from app.api.documents import get_current_user
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -23,20 +27,27 @@ class UpdateEmailRequest(BaseModel):
 @router.post("/register")
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
     if get_user_by_email(db, request.email):
+        logger.warning(f"Registration attempt with existing email: {request.email}")
         raise HTTPException(status_code=400, detail="Email already registered")
     tenant = db.query(Tenant).filter(Tenant.name == "default").first()
     if not tenant:
         tenant = create_tenant(db, "default")
     user = create_user(db, request.email, request.password, tenant.id)
     token = create_access_token({"sub": str(user.id)})
+    logger.info(f"User registered successfully: {user.email} (ID: {user.id})")
     return {"access_token": token, "token_type": "bearer"}
 
 @router.post("/login")
 def login(request: LoginRequest, db: Session = Depends(get_db)):
     user = get_user_by_email(db, request.email)
-    if not user or not verify_password(request.password, user.hashed_password):
+    if not user:
+        logger.warning(f"Login attempt with non-existent email: {request.email}")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not verify_password(request.password, user.hashed_password):
+        logger.warning(f"Login attempt with wrong password for email: {request.email}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_access_token({"sub": str(user.id)})
+    logger.info(f"User logged in successfully: {user.email} (ID: {user.id})")
     return {"access_token": token, "token_type": "bearer"}
 
 @router.put("/update_email")

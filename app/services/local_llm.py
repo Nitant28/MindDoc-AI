@@ -35,7 +35,10 @@ class LocalLLM:
                 # Prefer llama.cpp backend if available and a ggml model path provided
                 if self.model_path and self.model_path.lower().endswith('.ggml'):
                     try:
-                        from llama_cpp import Llama
+                        try:
+                            from llama_cpp import Llama  # type: ignore[import-unresolved]
+                        except ImportError:
+                            Llama = None
 
                         logger.info('Loading llama.cpp model from %s', self.model_path)
                         self._model = Llama(model_path=self.model_path)
@@ -68,7 +71,10 @@ class LocalLLM:
         if self._backend == 'llama_cpp':
             # llama.cpp Llama instance generate
             try:
-                out = self._model.create(prompt=prompt, max_tokens=max_new_tokens)
+                if self._model is not None and hasattr(self._model, 'create'):
+                    out = self._model.create(prompt=prompt, max_tokens=max_new_tokens)
+                else:
+                    out = None
                 return out.get('content') or out.get('text', '')
             except Exception:
                 logger.exception('llama_cpp generation failed')
@@ -76,7 +82,10 @@ class LocalLLM:
 
         if self._backend == 'transformers':
             try:
-                out = self._pipeline(prompt, max_new_tokens=max_new_tokens, do_sample=True, **kwargs)
+                if self._pipeline is not None:
+                    out = self._pipeline(prompt, max_new_tokens=max_new_tokens, do_sample=True, **kwargs)
+                else:
+                    out = None
                 if isinstance(out, list) and len(out) > 0 and 'generated_text' in out[0]:
                     return out[0]['generated_text']
                 return str(out)

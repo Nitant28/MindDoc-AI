@@ -1,17 +1,39 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Floating animation for logo */
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: linear-gradient(180deg, #0a0a0f 0%, #0f0f18 40%, #12121a 80%, #1c1c28 100%);
+  color: #fff;
 }
 
-.animate-float {
-  animation: float 3s ease-in-out infinite;
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Syne', sans-serif;
+}
+
+.glass {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  backdrop-filter: blur(12px);
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #a78bfa, #6c63ff, #38bdf8, #34d399);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-fill-color: transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  background: #12121a;
+}
+::-webkit-scrollbar-thumb {
+  background: #23233a;
+  border-radius: 8px;
 }

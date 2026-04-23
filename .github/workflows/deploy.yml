@@ -1,0 +1,38 @@
+# CI/CD Pipeline Example (GitHub Actions)
+name: Deploy MindDoc AI
+on:
+  push:
+    branches: [ main ]
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: minddoc
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      - name: Run tests
+        run: |
+          pytest
+      - name: Build Docker images
+        run: |
+          docker-compose build
+      - name: Deploy to cloud (placeholder)
+        run: echo "Deploy step here"
