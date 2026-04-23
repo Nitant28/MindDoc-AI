@@ -32,11 +32,6 @@ except ImportError:
     COHERE_AVAILABLE = False
 
 try:
-    from langchain.tools import DuckDuckGoSearchRun, WolframAlphaQueryRun  # type: ignore[import-unresolved]
-    TOOLS_AVAILABLE = True
-except ImportError:
-    DuckDuckGoSearchRun = None
-    WolframAlphaQueryRun = None
     TOOLS_AVAILABLE = False
 
 
@@ -297,28 +292,3 @@ def query_rag(vector_store, query: str, use_tools: bool = False, db: Optional[Se
 
     except Exception as e:
         return f"Error during RAG query: {e}"
-
-
-def _use_tools(query: str) -> str:
-    """Use integrated tools like web search and calculator for enhanced responses."""
-    if not TOOLS_AVAILABLE:
-        return ""
-
-    results = []
-    try:
-        if DuckDuckGoSearchRun is not None:
-            search = DuckDuckGoSearchRun()
-            search_result = search.run(query)
-            results.append(f"Web search: {search_result}")
-    except Exception:
-        pass
-
-    try:
-        if os.getenv('WOLFRAM_ALPHA_APPID') and WolframAlphaQueryRun is not None:
-            wolfram = WolframAlphaQueryRun()
-            calc_result = wolfram.run(query)
-            results.append(f"Calculation: {calc_result}")
-    except Exception:
-        pass
-
-    return " | ".join(results) if results else ""

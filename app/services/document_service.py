@@ -1,7 +1,18 @@
+def parse_document(file_path: str) -> str:
+    """Parse a document file and return its extracted text."""
+    with open(file_path, "rb") as f:
+        return extract_text_from_file(f, file_path)
+
+def chunk_document(text: str) -> list:
+    """Chunk text using the default chunker."""
+    return chunk_text(text)
 import os
 from PyPDF2 import PdfReader
 try:
-    from docx import Document as DocxDocument
+    try:
+        from docx import Document as DocxDocument  # type: ignore[import-unresolved]
+    except ImportError:
+        DocxDocument = None
     DOCX_AVAILABLE = True
 except Exception:
     DOCX_AVAILABLE = False
@@ -17,7 +28,10 @@ from typing import Tuple, Optional
 logger = logging.getLogger(__name__)
 
 try:
-    import pytesseract
+    try:
+        import pytesseract  # type: ignore[import-unresolved]
+    except ImportError:
+        pytesseract = None
     from PIL import Image
     OCR_AVAILABLE = True
 except ImportError:
@@ -31,19 +45,28 @@ except ImportError:
     EASYOCR_AVAILABLE = False
 
 try:
-    from unstructured.partition.auto import partition
+    try:
+        from unstructured.partition.auto import partition  # type: ignore[import-unresolved]
+    except ImportError:
+        partition = None
     UNSTRUCTURED_AVAILABLE = True
 except ImportError:
     UNSTRUCTURED_AVAILABLE = False
 
 try:
-    import pdfplumber
+    try:
+        import pdfplumber  # type: ignore[import-unresolved]
+    except ImportError:
+        pdfplumber = None
     PDFPLUMBER_AVAILABLE = True
 except ImportError:
     PDFPLUMBER_AVAILABLE = False
 
 try:
-    import fitz  # PyMuPDF
+    try:
+        import fitz  # type: ignore[import-unresolved]  # PyMuPDF
+    except ImportError:
+        fitz = None
     FITZ_AVAILABLE = True
 except ImportError:
     FITZ_AVAILABLE = False
@@ -76,7 +99,16 @@ def extract_text_from_image(img: Image.Image, use_ocr_priority: bool = False) ->
             reader = get_easyocr_reader()
             if reader:
                 ocr_results = reader.readtext(img)
-                extracted = " ".join([res[1] for res in ocr_results if res[1].strip() and res[2] > 0.3])
+                # Fix: Ensure ocr_results is a list of tuples/lists, not dicts, and types are correct
+                extracted = " ".join([
+                    res[1] for res in ocr_results
+                    if isinstance(res, (list, tuple))
+                    and len(res) > 2
+                    and isinstance(res[1], str)
+                    and res[1].strip()
+                    and isinstance(res[2], (int, float))
+                    and res[2] > 0.3
+                ])
                 if extracted.strip():
                     return extracted
         except Exception as e:
@@ -335,9 +367,16 @@ def extract_image(file_obj) -> str:
     return ""
 
 def chunk_text(text: str) -> list:
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    return splitter.split_text(text)
+    """Simple character-based chunker to avoid LangChain dependency bloat."""
+    chunk_size = 1000
+    chunk_overlap = 200
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start += (chunk_size - chunk_overlap)
+    return chunks
 
 def create_vector_store(chunks, embeddings):
     # retained for compatibility; in this project we store embeddings in DB and use a Python retriever
