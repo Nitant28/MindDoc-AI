@@ -1,14 +1,12 @@
-## (Moved root endpoint below app creation)
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from fastapi.staticfiles import StaticFiles
 import os
-## Removed asynccontextmanager for lifespan
 import logging
 import sys
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.api import auth, documents, chat
 from app.api import notebook_api
@@ -18,52 +16,35 @@ from app.database.models import create_tables, SessionLocal, init_default_tenant
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stdout
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        stream=sys.stdout
 )
 
-
-
-
-
+try:
+        create_tables()
+        db = SessionLocal()
+        init_default_tenant(db)
+        db.close()
+        logger.info("Database initialized successfully")
+except Exception as e:
+        logger.error(f"DB init error: {e}")
 
 app = FastAPI(
-    title="MindDoc AI",
-    description="AI-powered document processing and chat",
-    version="1.0.0"
+        title="MindDoc AI",
+        description="AI-powered document processing and chat",
+        version="1.0.0"
 )
-
-# Root endpoint moved to /api/docs or handled by frontend
-@app.get("/api")
-def api_root():
-    """API Root endpoint."""
-    return {"message": "Welcome to MindDoc AI API! Use /api/docs for documentation."}
-
-# Add GZip compression for faster responses
-app.add_middleware(GZipMiddleware, minimum_size=1000)
-
-# Increase upload size limit and robustness
-class LargeUploadMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        request._receive = request.receive  # Patch for large files
-        return await call_next(request)
-app.add_middleware(LargeUploadMiddleware)
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
@@ -72,45 +53,35 @@ app.include_router(notebook_api.router, prefix="/api/notebook", tags=["notebook"
 app.include_router(compat_router)
 app.include_router(finetune_router)
 
-@app.get("/api/test")
-def test():
-    """Health check endpoint"""
-    return {"message": "API is working", "status": "healthy"}
+@app.get("/api")
+def api_root():
+        return {"message": "MindDoc AI API is running."}
 
 @app.get("/api/health")
 def health():
-    """Detailed health check"""
-    return {
-        "status": "healthy",
-        "service": "MindDoc AI Backend",
-        "version": "1.0.0",
-        "database": "connected"
-    }
+        return {"status": "healthy", "service": "MindDoc AI Backend", "version": "1.0.0", "database": "connected"}
 
-from app.api.compat_api import router as compat_router
-app.include_router(compat_router)
-from app.api.finetune_api import router as finetune_router
-app.include_router(finetune_router)
+@app.get("/api/test")
+def test():
+        return {"message": "API is working", "status": "healthy"}
 
-# Mount static files for frontend (Production)
-frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
-if os.path.exists(frontend_path):
-    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
-    logger.info(f"Serving frontend from {frontend_path}")
+FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+INDEX_HTML = os.path.join(FRONTEND_DIST, "index.html")
+
+if os.path.exists(FRONTEND_DIST):
+        assets_path = os.path.join(FRONTEND_DIST, "assets")
+        if os.path.exists(assets_path):
+                    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+                logger.info(f"Frontend dist found at {FRONTEND_DIST}")
 else:
-    logger.warning(f"Frontend dist directory not found at {frontend_path}. Frontend will not be served.")
-
-from fastapi.responses import FileResponse
+    logger.warning(f"Frontend dist NOT found at {FRONTEND_DIST}")
 
 @app.get("/{full_path:path}")
-async def serve_spa(full_path: str):
-    """Catch-all route to serve the React frontend for SPA navigation."""
-    # Skip API routes and root path
-    if full_path.startswith("api") or full_path == "":
-         return {"detail": "Not Found"}
-         
-    index_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist", "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    
-    return {"detail": "Frontend index.html not found"}
+async def serve_spa(request: Request, full_path: str):
+        if full_path and os.path.exists(FRONTEND_DIST):
+                    static_file = os.path.join(FRONTEND_DIST, full_path)
+                    if os.path.isfile(static_file):
+                                    return FileResponse(static_file)
+                            if os.path.exists(INDEX_HTML):
+                                        return FileResponse(INDEX_HTML)
+                                    return JSONResponse({"detail": "Application not found"}, status_code=404)
