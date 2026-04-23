@@ -16,8 +16,11 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ## Quick Start
 
 ### Prerequisites
-- Ollama installed and running: `ollama serve`
-- Model downloaded: `qwen3-coder:480b-cloud`
+Python 3.11+
+Node.js & npm
+
+**No Ollama install required!**
+All AI models and the llama.cpp server are bundled and auto-downloaded by the installer. The app will auto-update models and server as needed. Just install and run—no extra steps.
 - Python 3.11+
 - Node.js & npm
 

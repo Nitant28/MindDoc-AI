@@ -1,122 +1,86 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import Sidebar from './Sidebar';
-import Logo from './Logo';
+import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../stores/useAuthStore';
+import { motion } from 'framer-motion';
 
-interface LayoutProps {
-  children: React.ReactNode;
-}
+// Professional SVG icons for navigation
+const DashboardIcon = () => (
+  <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="2" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="2" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="2" fill="currentColor"/></svg>
+);
+const UploadIcon = () => (
+  <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M12 16V4M12 4l-4 4M12 4l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><rect x="4" y="16" width="16" height="4" rx="2" fill="currentColor"/></svg>
+);
+const ChatIcon = () => (
+  <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+);
+const ReminderIcon = () => (
+  <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+);
+const SettingsIcon = () => (
+  <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c0 .66.38 1.26 1 1.51a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09c0 .66.38 1.26 1 1.51H21a2 2 0 0 1 0 4h-.09c-.66 0-1.26.38-1.51 1z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+);
 
-const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+const navItems = [
+  { to: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+  { to: '/upload', label: 'Upload', icon: <UploadIcon /> },
+  { to: '/chat', label: 'Chat', icon: <ChatIcon /> },
+  { to: '/reminders', label: 'Reminders', icon: <ReminderIcon /> },
+  { to: '/settings', label: 'Settings', icon: <SettingsIcon /> },
+];
 
-  const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+export function Layout() {
+  const user = useAuthStore((s: any) => s.user);
+  const logout = useAuthStore((s: any) => s.logout);
+  const navigate = useNavigate();
+
+  // Check authentication
+  if (!user && !localStorage.getItem('token')) {
+    navigate('/login');
+    return null;
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Sidebar Overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black bg-opacity-50" onClick={toggleSidebar}></div>
-      )}
-      
-      {/* Sidebar */}
-      <Sidebar isOpen={sidebarOpen} toggleSidebar={toggleSidebar} />
-      
-      {/* Main Content */}
-      <div className="flex flex-col min-h-screen">
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center">
-                <button
-                  onClick={toggleSidebar}
-                  className="mr-4 p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                  </svg>
-                </button>
-                <Link to="/dashboard" className="flex items-center relative">
-                  <div className="animate-float">
-                    <svg width="48" height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                      <defs>
-                        <linearGradient id="md-gradient" x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0%" stopColor="#2b6ef6"/>
-                          <stop offset="60%" stopColor="#6d28d9"/>
-                        </linearGradient>
-                        <radialGradient id="md-glow" cx="50%" cy="30%" r="50%">
-                          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.35"/>
-                          <stop offset="100%" stopColor="#ffffff" stopOpacity="0"/>
-                        </radialGradient>
-                        <filter id="md-drop" x="-20%" y="-20%" width="140%" height="140%">
-                          <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#0b3b91" floodOpacity="0.08"/>
-                        </filter>
-                      </defs>
-
-                      {/* Paper with folded corner */}
-                      <g filter="url(#md-drop)">
-                        <path d="M12 62 L12 30 Q12 26 16 26 L60 26 Q64 26 64 30 L64 62 Q64 66 60 66 L16 66 Q12 66 12 62 Z" fill="#ffffff" stroke="#e6f0ff" strokeWidth="0.8"/>
-                        <path d="M60 26 L64 30 L56 30 Z" fill="#eef6ff" opacity="0.9"/>
-                        <line x1="18" y1="36" x2="58" y2="36" stroke="#cfe7ff" strokeWidth="1" opacity="0.9"/>
-                        <line x1="18" y1="42" x2="52" y2="42" stroke="#e6f4ff" strokeWidth="1" opacity="0.8"/>
-                        <line x1="18" y1="48" x2="56" y2="48" stroke="#eaf6ff" strokeWidth="1" opacity="0.75"/>
-                      </g>
-
-                      {/* Cloud / Brain with gradient */}
-                      <g transform="translate(20,6)">
-                        <g transform="scale(0.9)">
-                          <path d="M20 14 C12 14 8 20 8 24 C4 24 2 28 2 32 C2 36 6 40 12 40 H44 C52 40 58 34 58 28 C58 24 54 18 48 18 C46 12 40 8 34 10 C30 6 24 6 20 14 Z" fill="url(#md-gradient)" />
-                          <path d="M12 22 C10 18 14 14 18 14 C22 10 30 10 34 14 C40 12 46 16 48 20" fill="url(#md-glow)" opacity="0.6" />
-
-                          {/* network overlay */}
-                          <g stroke="#ffffff" strokeWidth="0.9" strokeOpacity="0.85" fill="#ffffff">
-                            <line x1="18" y1="24" x2="28" y2="20" strokeOpacity="0.35"/>
-                            <line x1="28" y1="20" x2="40" y2="24" strokeOpacity="0.35"/>
-                            <line x1="24" y1="28" x2="34" y2="30" strokeOpacity="0.35"/>
-                            <circle cx="18" cy="24" r="1.4"/>
-                            <circle cx="28" cy="20" r="1.8"/>
-                            <circle cx="40" cy="24" r="1.4"/>
-                            <circle cx="34" cy="30" r="1.3"/>
-                          </g>
-                        </g>
-                      </g>
-
-                      {/* subtle ground shadow */}
-                      <ellipse cx="50" cy="82" rx="22" ry="4" fill="#0b3b91" opacity="0.06"/>
-                    </svg>
-                  </div>
-                  <div className="ml-3">
-                    <span className="text-xl font-bold text-gray-800">MindDoc AI</span>
-                    <p className="text-xs text-gray-600">Intelligence, grounded in your documents</p>
-                  </div>
-                </Link>
-              </div>
-              <div className="flex items-center space-x-4">
-                <Link to="/upload" className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700">
-                  Upload
-                </Link>
-                <Link to="/dashboard" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">
-                  Dashboard
-                </Link>
-                <Link to="/chat" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">
-                  Chat
-                </Link>
-                <Link to="/settings" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">
-                  Settings
-                </Link>
-              </div>
-            </div>
-          </div>
+    <div className="flex h-screen bg-bg3">
+      <aside className="w-52 bg-glass border-r border-white/10 flex flex-col py-6 px-4">
+        <div className="mb-8 flex items-center gap-2">
+          <span className="w-3 h-3 bg-green rounded-full animate-pulse"></span>
+          <span className="font-syne font-bold text-lg gradient-text">MindDoc AI</span>
+        </div>
+        <nav className="flex-1 flex flex-col gap-2">
+          {navItems.map(item => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-4 py-2 rounded-pill font-medium transition-all ${
+                  isActive ? 'bg-primary/15 text-accent' : 'hover:bg-glass hover:scale-105'
+                }`
+              }
+            >
+              <span>{item.icon}</span>
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+        <button
+          onClick={logout}
+          className="mt-8 w-full py-2 rounded-pill bg-red/80 text-white font-bold shadow-glow hover:scale-105 transition-all"
+        >
+          Logout
+        </button>
+      </aside>
+      <main className="flex-1 flex flex-col">
+        <header className="h-16 flex items-center px-8 border-b border-white/10 bg-glass">
+          <span className="font-syne text-xl font-bold gradient-text">Welcome, {user?.name || user?.email}</span>
         </header>
-        
-        {/* Page Content */}
-        <main className="flex-1">
-          {children}
-        </main>
-      </div>
+        <motion.section
+          className="flex-1 overflow-y-auto p-8"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+        >
+          <Outlet />
+        </motion.section>
+      </main>
     </div>
   );
-};
-
-export default Layout;
+}

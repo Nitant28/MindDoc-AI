@@ -32,16 +32,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
   }, []);
 
   const sections = [
-    { id: 'documents', label: 'Documents', icon: <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg> },
-    { id: 'sessions', label: 'Chat Sessions', icon: <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"/><path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z"/></svg> },
-    { id: 'saved', label: 'Saved Items', icon: <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg> }
+    { id: 'documents', label: 'All Documents', icon: <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>, tooltip: 'Browse and manage all your uploaded documents.' },
+    { id: 'sessions', label: 'AI Chats', icon: <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"/><path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z"/></svg>, tooltip: 'Conversations and Q&A with your documents.' },
+    { id: 'saved', label: 'Saved Insights', icon: <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>, tooltip: 'Your starred documents, notes, and extracted insights.' }
   ];
 
   return (
     <div className={`fixed inset-y-0 left-0 z-50 w-80 bg-white shadow-lg transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out`}>
       <div className="flex items-center justify-between p-4 border-b">
-        <h2 className="text-xl font-bold text-gray-800">MindDoc AI</h2>
-        <button onClick={toggleSidebar} className="text-gray-500 hover:text-gray-700">
+        <h2 className="text-xl font-extrabold gradient-text">MindDoc AI</h2>
+        <button onClick={toggleSidebar} className="text-gray-500 hover:text-gray-700" title="Close sidebar">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -57,6 +57,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
               className={`flex-1 py-3 px-2 text-center text-sm font-medium ${
                 activeSection === section.id ? 'bg-blue-100 text-blue-600 border-b-2 border-blue-600' : 'text-gray-600 hover:bg-gray-50'
               }`}
+              title={section.tooltip}
             >
               <span className="mr-1">{section.icon}</span>
               {section.label}
@@ -70,7 +71,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
               <h3 className="text-lg font-semibold mb-3">Recent Documents</h3>
               <ul className="space-y-2">
                 {documents.map((doc: any) => (
-                  <li key={doc.id} className="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100">
+                  <li key={(doc as any).id} className="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100">
                     <span className="text-sm truncate flex-1">{doc.filename}</span>
                     <div className="flex space-x-1">
                       <button
@@ -86,9 +87,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
                           if (isSaved) {
                             // Unsave
                             const savedItem = savedItems.find((item: any) => item.title === doc.filename);
-                            if (savedItem) {
+                            const saved: any = savedItem;
+                            if (saved && saved.id) {
                               try {
-                                await api.delete(`/chat/saved_items/${savedItem.id}`);
+                                await api.delete(`/chat/saved_items/${saved.id}`);
                                 const savedRes = await api.get('/chat/saved_items');
                                 setSavedItems(savedRes.data);
                               } catch (error) {

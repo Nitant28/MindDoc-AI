@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 import os
+from dotenv import load_dotenv
 from services.document_processor import DocumentProcessor
 from services.ai_analyzer import AIAnalyzer
 from services.fallback_analyzer import FallbackAnalyzer
@@ -11,6 +12,8 @@ from utils.chunker import chunk_text
 from models.response_models import AnalysisResponse
 import time
 import asyncio
+
+load_dotenv()
 
 app = FastAPI(title="Document Analysis API", version="1.0.0")
 

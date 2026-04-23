@@ -1,0 +1,31 @@
+/* Custom 3D and animation styles for MindDoc AI */
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-18px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Glassmorphism for cards */
+.glass-card {
+  background: rgba(255,255,255,0.15);
+  box-shadow: 0 8px 32px 0 rgba(31,38,135,0.37);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.18);
+}
+
+/* 3D button effect */
+.btn-3d {
+  box-shadow: 0 4px 16px 0 rgba(0,230,230,0.3), 0 1.5px 0 0 #00e6e6;
+  transition: transform 0.2s cubic-bezier(.4,2,.6,1), box-shadow 0.2s;
+}
+.btn-3d:hover {
+  transform: translateY(-4px) scale(1.04);
+  box-shadow: 0 8px 32px 0 rgba(0,230,230,0.5), 0 2px 0 0 #00e6e6;
+}

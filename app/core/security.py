@@ -1,9 +1,12 @@
 import hashlib
 import secrets
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -29,5 +32,6 @@ def verify_token(token: str):
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
         return payload
-    except JWTError:
+    except JWTError as e:
+        logger.warning(f"Token verification failed: {str(e)}")
         return None

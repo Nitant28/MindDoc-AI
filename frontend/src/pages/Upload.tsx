@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import api from '../api';
+import { motion } from 'framer-motion';
 
 const Upload: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -16,7 +17,7 @@ const Upload: React.FC = () => {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const response = await api.post('/documents/upload', formData, {
+      await api.post('/documents/upload', formData, {
         onUploadProgress: (p) => {
           const total = p.total || 1;
           setProgress(Math.round((p.loaded / total) * 100));
@@ -36,57 +37,57 @@ const Upload: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-pink-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 border border-gray-200">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-bg1 via-bg3 to-bg4 relative overflow-hidden">
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+          <div className="glass rounded-lg p-8 flex flex-col items-center shadow-xl border border-white/10">
+            <svg className="animate-spin h-8 w-8 text-primary mb-4" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+            </svg>
+            <span className="text-lg font-semibold text-primary">Processing document...</span>
+          </div>
+        </div>
+      )}
+      <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8 }} className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-primary/40 blur-3xl z-0" />
+      <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.2 }} className="absolute -bottom-32 -right-32 w-[500px] h-[500px] rounded-full bg-accent/40 blur-3xl z-0" />
+      <div className="relative z-10 w-full max-w-md glass border border-white/10 shadow-glow rounded-card p-10 flex flex-col items-center">
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-lg">
+            <div className="w-16 h-16 bg-gradient-to-br from-primary to-accent rounded-full flex items-center justify-center shadow-lg">
               <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
               </svg>
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2 flex items-center justify-center">
+          <h1 className="text-3xl font-bold gradient-text mb-2 flex items-center justify-center drop-shadow-2xl">
             <svg className="w-8 h-8 mr-2" fill="currentColor" viewBox="0 0 20 20">
               <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
             </svg>
             Upload Document
           </h1>
-          <p className="text-gray-600">Upload a PDF, DOCX, or image file to get started</p>
+          <p className="text-white/70">Upload a PDF, DOCX, or image file to get started</p>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-gray-700 font-semibold mb-3 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-              </svg>
-              Select PDF, DOCX, or Image File
-            </label>
+        <form onSubmit={handleSubmit} className="space-y-6 w-full">
+          <div className="group">
+            <label className="block text-white/80 font-semibold mb-3 flex items-center">Select PDF, DOCX, or Image File</label>
             <input
               type="file"
               accept=".pdf,.docx,.png,.jpg,.jpeg,.tiff,.bmp"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 bg-gray-50 hover:bg-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+              className="w-full px-4 py-3 rounded-input bg-bg2 border border-white/10 focus:ring-2 focus:ring-primary focus:border-transparent transition duration-200 text-white placeholder-white/40 group-hover:scale-105 group-hover:shadow-glow"
               required
             />
           </div>
-          {progress > 0 && (
-            <div className="w-full bg-gray-100 rounded-full h-2 mt-2">
-              <div className="bg-purple-500 h-2 rounded-full" style={{ width: `${progress}%` }} />
-            </div>
-          )}
-          {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-lg font-semibold hover:from-purple-600 hover:to-pink-600 transition duration-300 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            className="w-full rounded-pill bg-gradient-to-r from-primary via-accent to-green text-white font-bold py-3 shadow-glow text-lg transition-all hover:-translate-y-1 hover:scale-110 hover:shadow-2xl focus:outline-none disabled:opacity-60 flex items-center justify-center"
           >
-            <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586 11.293 8.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"/>
-            </svg>
-            {loading ? 'Uploading...' : 'Upload'}
+            {loading ? 'Processing...' : 'Upload & Analyze'}
           </button>
         </form>
+        {error && <p className="text-red-500 mb-4">{error}</p>}
       </div>
     </div>
   );
