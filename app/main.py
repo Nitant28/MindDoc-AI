@@ -99,3 +99,18 @@ if os.path.exists(frontend_path):
     logger.info(f"Serving frontend from {frontend_path}")
 else:
     logger.warning(f"Frontend dist directory not found at {frontend_path}. Frontend will not be served.")
+
+from fastapi.responses import FileResponse
+
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """Catch-all route to serve the React frontend for SPA navigation."""
+    # Skip API routes and root path
+    if full_path.startswith("api") or full_path == "":
+         return {"detail": "Not Found"}
+         
+    index_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    
+    return {"detail": "Frontend index.html not found"}
