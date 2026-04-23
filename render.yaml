@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: minddoc-ai
+    name: minddoc-ai-unified
     env: docker
     plan: free
     region: oregon

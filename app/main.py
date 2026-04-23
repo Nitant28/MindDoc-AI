@@ -34,11 +34,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Add root endpoint after app is defined
-@app.get("/")
-def root():
-    """Root endpoint for health checks and browser visits."""
-    return {"message": "Welcome to MindDoc AI Backend! Use /api/docs for API documentation."}
+# Root endpoint moved to /api/docs or handled by frontend
+@app.get("/api")
+def api_root():
+    """API Root endpoint."""
+    return {"message": "Welcome to MindDoc AI API! Use /api/docs for documentation."}
 
 # Add GZip compression for faster responses
 app.add_middleware(GZipMiddleware, minimum_size=1000)
