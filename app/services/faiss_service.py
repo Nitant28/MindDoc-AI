@@ -1,7 +1,11 @@
 import os
 import json
 import numpy as np
-import faiss
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    FAISS_AVAILABLE = False
 from app.database.models import DocumentChunk, Document
 from sqlalchemy.orm import Session
 
@@ -18,6 +22,8 @@ from typing import Optional
 
 
 def build_faiss_index(db: Session, tenant_id: int, document_id: Optional[int] = None):
+    if not FAISS_AVAILABLE:
+        return False
     ensure_indexes_dir()
 
     query = db.query(DocumentChunk).join(Document).filter(Document.tenant_id == tenant_id)
@@ -66,7 +72,7 @@ def build_faiss_index(db: Session, tenant_id: int, document_id: Optional[int] = 
 
 
 def load_faiss_index():
-    if not os.path.exists(FAISS_INDEX_PATH) or not os.path.exists(FAISS_META_PATH):
+    if not FAISS_AVAILABLE or not os.path.exists(FAISS_INDEX_PATH) or not os.path.exists(FAISS_META_PATH):
         return None, None
 
     index = faiss.read_index(FAISS_INDEX_PATH)
