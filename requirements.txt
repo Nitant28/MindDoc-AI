@@ -22,6 +22,9 @@ pinecone-client
 duckduckgo-search
 wolframalpha
 cachetools
+passlib
+python-dotenv
+bcrypt
 nbformat
 numpy
 python-dotenv
