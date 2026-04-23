@@ -121,14 +121,7 @@ def load_vector_store(db: Session, tenant_id: int, document_id: Optional[int] = 
     return SimpleRetriever(docs)
 
 def _call_llm(context: str, query: str, model: Optional[str] = None, max_tokens: int = 512) -> str:
-    """Fast LLM call with smart prompt routing.
-    
-    SPEEDS:
-    - DeepSeek: 1-2 seconds (FASTEST, best for RAG)
-    - Ollama: 2-5 seconds (free, local)
-    - OpenAI: 3-5 seconds (slower API)
-    - Claude: 5-10 seconds (slowest)
-    """
+    """Fast LLM call with smart prompt routing."""
     
     # Smart prompt based on context
     if context and context.strip():
@@ -141,8 +134,8 @@ IMPORTANT: Use ONLY information from this document. Do NOT refer to general know
 User Question: {query}
 
 Answer based ONLY on the document above:"""
-        temperature = 0.3  # Lower = more accurate extraction
-        logger.info(f"LLM: Using document context ({len(context)} chars) - Temperature: 0.3 (accurate)")
+        temperature = 0.3
+        logger.info(f"LLM: Using document context ({len(context)} chars) - Temperature: 0.3")
     else:
         # General knowledge (NO document)
         prompt = f"""Answer this question using your general knowledge. 
@@ -151,37 +144,37 @@ You are NOT referencing any specific document - answer from general knowledge on
 Question: {query}
 
 Answer:"""
-    temperature = 0.5  # Higher = more natural conversation
-        logger.info(f"LLM: Using general knowledge (NO document context) - Temperature: 0.5 (natural)")
+        temperature = 0.5
+        logger.info(f"LLM: Using general knowledge (NO document context) - Temperature: 0.5")
     
     # 0. TRY OPENROUTER FIRST (User Requested, Free)
     try:
         result = generate_with_openrouter(prompt, max_tokens=max_tokens, temperature=temperature)
         if result and isinstance(result, str) and result.strip():
-            logger.info(f"LLM response from OpenRouter")
+            logger.info("LLM response from OpenRouter")
             return result
     except Exception as e:
         logger.warning(f"OpenRouter failed: {e}")
 
-    # 1. TRY DEEPSEEK SECOND (FASTEST for RAG, cheapest)
+    # 1. TRY DEEPSEEK SECOND (FASTEST for RAG)
     try:
         result = generate_with_deepseek(prompt, model="deepseek-chat", max_tokens=max_tokens, temperature=temperature)
         if result and isinstance(result, str) and result.strip():
-            logger.info(f"LLM response from DeepSeek (1-2s)")
+            logger.info("LLM response from DeepSeek")
             return result
     except Exception as e:
         logger.warning(f"DeepSeek failed: {e}")
     
-    # 2. FALLBACK to Ollama (free, local, instant if running)
+    # 2. FALLBACK to Ollama
     try:
         result = generate_with_ollama(prompt, model=model, max_tokens=max_tokens, temperature=temperature)
         if result and isinstance(result, str) and result.strip():
-            logger.info(f"LLM response from Ollama (2-5s)")
+            logger.info("LLM response from Ollama")
             return result
     except Exception as e:
         logger.warning(f"Ollama failed: {e}")
     
-    # 3. Try OpenAI GPT-4 (slower, more expensive)
+    # 3. Try OpenAI GPT-4
     if os.getenv('OPENAI_API_KEY'):
         try:
             from openai import OpenAI
@@ -193,12 +186,12 @@ Answer:"""
                 temperature=temperature
             )
             content = response.choices[0].message.content
-            logger.info(f"LLM response from GPT-4 (3-5s)")
+            logger.info("LLM response from GPT-4")
             return content if content is not None else ""
         except Exception as e:
             logger.warning(f"OpenAI failed: {e}")
     
-    # 4. Try Claude (slowest)
+    # 4. Try Claude
     if ANTHROPIC_AVAILABLE and os.getenv('ANTHROPIC_API_KEY'):
         try:
             if Anthropic is not None:
@@ -208,7 +201,7 @@ Answer:"""
                     max_tokens=max_tokens,
                     messages=[{"role": "user", "content": prompt}]
                 )
-                logger.info(f"LLM response from Claude (5-10s)")
+                logger.info("LLM response from Claude")
                 return response.content[0].text
         except Exception as e:
             logger.warning(f"Claude failed: {e}")
@@ -223,12 +216,12 @@ Answer:"""
                     prompt=prompt,
                     max_tokens=max_tokens
                 )
-                logger.info(f"LLM response from Cohere")
+                logger.info("LLM response from Cohere")
                 return response.generations[0].text
         except Exception as e:
             logger.warning(f"Cohere failed: {e}")
     
-    return "Sorry, all LLM backends are unavailable. Please check API keys or Ollama server."
+    return "Sorry, all LLM backends are unavailable."
 
 
 def query_rag(vector_store, query: str, use_tools: bool = False, db: Optional[Session] = None, tenant_id: Optional[int] = None, document_id: Optional[int] = None) -> str:
