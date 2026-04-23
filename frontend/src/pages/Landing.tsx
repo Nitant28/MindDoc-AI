@@ -38,7 +38,7 @@ export default function Landing() {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await fetch('http://127.0.0.1:8080/api/documents/statistics');
+                const response = await fetch('/api/documents/statistics');
         const data = await response.json();
         setStats({
           documentsCount: formatNumber(data.total_documents || 0),
