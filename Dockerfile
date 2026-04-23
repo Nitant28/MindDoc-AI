@@ -4,7 +4,7 @@ WORKDIR /build/frontend
 COPY frontend/package*.json ./
 RUN npm install
 COPY frontend/ .
-RUN npm run build
+RUN npx vite build
 
 # --- Stage 2: Backend Runtime ---
 FROM python:3.11-slim
