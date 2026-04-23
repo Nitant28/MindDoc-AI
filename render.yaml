@@ -1,15 +1,14 @@
 services:
   - type: web
-    name: minddoc-api
-    env: python
+    name: minddoc-ai
+    env: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python run_server.py
-    healthCheckPath: /health
+    region: oregon
+    healthCheckPath: /api/health
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11
-
-databases:
-  - name: minddoc-db
-    plan: free
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-oss-120b:free
+      - key: DATABASE_URL
+        value: sqlite:///./minddoc.db

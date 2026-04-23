@@ -29,24 +29,24 @@ def startup():
         print("=" * 60)
         print("\n[*] Initializing database...")
         create_tables()
-        print("[✓] Database tables verified")
+        print("[OK] Database tables verified")
         
         db = SessionLocal()
         try:
             init_default_tenant(db)
-            print("[✓] Default tenant initialized")
+            print("[OK] Default tenant initialized")
         finally:
             db.close()
         
-        print("[✓] All systems ready")
+        print("[OK] All systems ready")
         print("=" * 60)
         print("\nStarting FastAPI server...")
-        print("  Backend: http://localhost:8000")
-        print("  API Docs: http://localhost:8000/docs")
+        print("  Backend: http://localhost:8080")
+        print("  API Docs: http://localhost:8080/docs")
         print("=" * 60 + "\n")
         
     except Exception as e:
-        print(f"\n[✗] Initialization failed: {str(e)}")
+        print(f"\n[ERROR] Initialization failed: {str(e)}")
         print("Cannot start backend without database")
         sys.exit(1)
 
@@ -55,10 +55,14 @@ if __name__ == "__main__":
     startup()
     
     # Start server
+    import os
+    port = int(os.getenv("PORT", 8080))
+    host = os.getenv("HOST", "0.0.0.0")
+    
     uvicorn.run(
         app,
-        host="127.0.0.1",
-        port=8000,
+        host=host,
+        port=port,
         log_level="info",
         access_log=True
     )
