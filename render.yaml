@@ -11,4 +11,8 @@ services:
       - key: OPENROUTER_MODEL
         value: openai/gpt-oss-120b:free
       - key: DATABASE_URL
-        value: sqlite:///./minddoc.db
+        value: sqlite:////app/data/minddoc.db
+    disk:
+      name: minddoc-data
+      mountPath: /app/data
+      sizeGB: 1
