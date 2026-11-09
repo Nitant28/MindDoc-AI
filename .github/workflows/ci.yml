@@ -16,10 +16,25 @@ jobs:
       - name: Install system packages
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
       - name: Install dependencies (core + ML extras, CPU torch)
+        # torch and torchvision must both come from the CPU index: the PyPI torchvision that
+        # EasyOCR pulls in is built for CUDA torch and breaks the transformers import.
         run: |
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt -r requirements-ml.txt
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2
+      - name: Load the embedding model (fails here if the ML stack is broken)
+        run: >-
+          python -c "import torch, torchvision, transformers, sentence_transformers as st;
+          print('torch', torch.__version__, 'torchvision', torchvision.__version__,
+          'transformers', transformers.__version__, 'sentence-transformers', st.__version__);
+          st.SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
       - name: Tests (offline, isolated database)
+        env:
+          REQUIRE_ML_MODELS: "1"  # fail, don't skip, if the semantic tests can't load the model
         run: python -m pytest tests -q -p no:cacheprovider
 
   frontend:

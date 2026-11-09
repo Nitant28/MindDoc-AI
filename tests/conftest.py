@@ -25,6 +25,20 @@ def client():
         yield c
 
 
+@pytest.fixture(scope="session")
+def semantic_model():
+    """True when the sentence-transformers embedding model is loaded (ML extras installed and cached).
+
+    Semantic assertions only hold with the real model, not the hashing fallback. Locally they are
+    skipped on a slim install; CI sets REQUIRE_ML_MODELS=1 so a broken ML install fails loudly.
+    """
+    from app.ml import embeddings as emb
+    loaded = emb.active_model_name() != emb.HASHING_MODEL_NAME
+    if not loaded and os.environ.get("REQUIRE_ML_MODELS") == "1":
+        pytest.fail("REQUIRE_ML_MODELS=1 but the embedding model did not load; check the ML install")
+    return loaded
+
+
 def _auth(client, email):
     r = client.post("/api/auth/register", json={"email": email, "password": "correct-horse-1"})
     assert r.status_code == 200, r.text

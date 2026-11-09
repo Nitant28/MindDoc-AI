@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from PIL import Image, ImageDraw
 
 from app.ai import guardrails, knowledge
@@ -39,17 +40,26 @@ def test_bm25_ranks_exact_match_first():
     assert int(np.argmax(bm.scores(tokenize("termination notice")))) == 2
 
 
-def test_hybrid_index_search_and_filter():
+def _three_doc_index():
     texts = ["Invoice total due is $4,200 payable within 30 days.",
              "The employee handbook covers vacation policy and remote work.",
              "Either party may terminate this agreement with 60 days written notice."]
     recs = [ChunkRecord(i + 1, 10 + i, f"d{i}.txt", 1, t) for i, t in enumerate(texts)]
     vecs, model = emb.embed(texts)
-    idx = WorkspaceIndex(recs, vecs, model)
-    hits = idx.search("how can the contract be ended?", k=2, use_rerank=False)
+    return WorkspaceIndex(recs, vecs, model)
+
+
+def test_hybrid_index_document_filter():
+    only = _three_doc_index().search("vacation", k=3, document_ids=[10], use_rerank=False)
+    assert only and all(h.chunk.document_id == 10 for h in only)
+
+
+def test_dense_search_matches_paraphrase(semantic_model):
+    if not semantic_model:
+        pytest.skip("needs the sentence-transformers model (pip install -r requirements-ml.txt)")
+    # no word overlap with the answer, so only real embeddings can find it
+    hits = _three_doc_index().search("how can the contract be ended?", k=2, use_rerank=False)
     assert hits[0].chunk.document_id == 12
-    only = idx.search("vacation", k=3, document_ids=[10], use_rerank=False)
-    assert all(h.chunk.document_id == 10 for h in only)
 
 
 def test_hashing_embeddings_are_normalised_and_semantic_ish():
