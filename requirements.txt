@@ -1,30 +1,30 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-pydantic
-pydantic-settings
-python-jose[cryptography]
-python-multipart
-pyjwt
-openai
-pypdf2
-pdfplumber
-pymupdf
-httpx
-google-generativeai
-python-docx
-pytesseract
-pillow
-requests
-anthropic
-cohere
-pinecone-client
-duckduckgo-search
-wolframalpha
-cachetools
-passlib
-python-dotenv
-bcrypt
-nbformat
-numpy
-python-dotenv
+# Core runtime: everything the API needs. Fits small hosts (no torch).
+# Without requirements-ml.txt the app uses its offline hashing embeddings, no reranker and Tesseract-only OCR.
+
+# --- API ---------------------------------------------------------------------
+fastapi>=0.110
+uvicorn[standard]>=0.29
+sqlalchemy>=2.0
+pydantic>=2.6
+pydantic-settings>=2.2
+python-jose[cryptography]>=3.3
+python-multipart>=0.0.9
+httpx>=0.27
+
+# --- Document parsing --------------------------------------------------------
+# NOTE: PyMuPDF is AGPL-3.0 — replaced in backlog Phase 3 (ADR-0006).
+pymupdf>=1.23
+pdfplumber>=0.10
+python-docx>=1.1
+pillow>=10
+
+# --- Computer vision / OCR ---------------------------------------------------
+opencv-python-headless>=4.8
+pytesseract>=0.3.10    # needs the Tesseract binary (installed in the Docker image)
+
+# --- ML / retrieval ----------------------------------------------------------
+numpy>=1.26,<3
+scikit-learn>=1.3
+
+# --- Dev ---------------------------------------------------------------------
+pytest>=8

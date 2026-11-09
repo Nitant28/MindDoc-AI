@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 from app.database.models import User, Tenant
 from app.core.security import hash_password
-from typing import List, Optional
 
 def create_tenant(db: Session, name: str):
     tenant = Tenant(name=name)
@@ -18,12 +17,11 @@ def create_user(db: Session, email: str, password: str, tenant_id: int):
     db.refresh(user)
     return user
 
-def update_user(db: Session, user_id: int, email: Optional[str] = None):
+def update_user(db: Session, user_id: int, email: str = None):
     user = db.query(User).filter(User.id == user_id).first()
     if user:
         if email:
-                # Ensure assignment to the actual string attribute, not SQLAlchemy column
-                setattr(user, 'email', email)
+            user.email = email
         db.commit()
         db.refresh(user)
     return user

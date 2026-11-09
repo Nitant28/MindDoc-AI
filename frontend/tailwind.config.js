@@ -1,57 +1,48 @@
 /** @type {import('tailwindcss').Config} */
-module.exports = {
+const token = (name) => `rgb(var(--${name}) / <alpha-value>)`;
+
+export default {
   darkMode: 'class',
-  content: [
-    './src/**/*.{js,ts,jsx,tsx}',
-    './public/index.html',
-  ],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
-      fontFamily: {
-        syne: ['Syne', 'sans-serif'],
-        sans: ['DM Sans', 'sans-serif'],
-      },
       colors: {
-        primary: '#6c63ff',
-        accent: '#38bdf8',
-        green: '#34d399',
-        amber: '#fbbf24',
-        red: '#f87171',
-        bg1: '#0a0a0f',
-        bg2: '#0f0f18',
-        bg3: '#12121a',
-        bg4: '#1c1c28',
-        glass: 'rgba(255,255,255,0.08)',
+        bg: token('bg'),
+        surface: token('surface'),
+        elevated: token('elevated'),
+        line: token('line'),
+        'line-strong': token('line-strong'),
+        fg: token('fg'),
+        muted: token('muted'),
+        subtle: token('subtle'),
+        accent: {
+          DEFAULT: token('accent'),
+          hover: token('accent-hover'),
+          fg: token('accent-fg'),
+          soft: token('accent-soft'),
+        },
       },
-      borderRadius: {
-        card: '16px',
-        input: '10px',
-        pill: '100px',
-      },
-      boxShadow: {
-        glow: '0 0 16px 0 #6c63ff55',
-        glass: '0 4px 32px 0 rgba(108,99,255,0.08)',
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace'],
       },
       keyframes: {
-        shake: {
-          '0%, 100%': { transform: 'translateX(0)' },
-          '20%, 60%': { transform: 'translateX(-4px)' },
-          '40%, 80%': { transform: 'translateX(4px)' },
+        'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
+        'slide-up': {
+          from: { opacity: '0', transform: 'translateY(6px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
         },
-        flash: {
-          '0%': { transform: 'scale(1)', background: '#34d399' },
-          '50%': { transform: 'scale(1.02)', background: '#34d399' },
-          '100%': { transform: 'scale(1)', background: 'inherit' },
+        indeterminate: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(250%)' },
         },
-        shimmer: {
-          '0%': { backgroundPosition: '-400px 0' },
-          '100%': { backgroundPosition: '400px 0' },
-        },
+        blink: { '50%': { opacity: '0' } },
       },
       animation: {
-        shake: 'shake 0.4s cubic-bezier(0.34,1.56,0.64,1)',
-        flash: 'flash 0.3s',
-        shimmer: 'shimmer 1.2s linear infinite',
+        'fade-in': 'fade-in 150ms ease-out',
+        'slide-up': 'slide-up 180ms ease-out',
+        indeterminate: 'indeterminate 1.3s ease-in-out infinite',
+        blink: 'blink 1s steps(2, start) infinite',
       },
     },
   },

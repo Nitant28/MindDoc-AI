@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install system packages
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+      - name: Install dependencies (core + ML extras, CPU torch)
+        # torch and torchvision must both come from the CPU index: the PyPI torchvision that
+        # EasyOCR pulls in is built for CUDA torch and breaks the transformers import.
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt -r requirements-ml.txt
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2
+      - name: Load the embedding model (fails here if the ML stack is broken)
+        run: >-
+          python -c "import torch, torchvision, transformers, sentence_transformers as st;
+          print('torch', torch.__version__, 'torchvision', torchvision.__version__,
+          'transformers', transformers.__version__, 'sentence-transformers', st.__version__);
+          st.SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+      - name: Tests (offline, isolated database)
+        env:
+          REQUIRE_ML_MODELS: "1"  # fail, don't skip, if the semantic tests can't load the model
+        run: python -m pytest tests -q -p no:cacheprovider
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  docker:
+    # Builds the same slim image Render deploys and boots it under Render-like limits.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the slim image
+        run: docker build -t minddoc .
+      - name: Boot with 512 MB, Render's PORT and an SQLite path in a missing folder
+        run: |
+          docker run -d --name md --memory=512m -p 10000:10000 -e PORT=10000 \
+            -e DATABASE_URL=sqlite:////app/data/minddoc.db minddoc
+          for i in $(seq 1 60); do curl -fsS localhost:10000/api/health && break; sleep 2; done
+          curl -fsS localhost:10000/api/health | grep -q healthy
+          curl -fsS localhost:10000/ | grep -qi '<div id="root">'
+      - name: Smoke test (register, upload, ask)
+        run: |
+          TOKEN=$(curl -fsS -X POST localhost:10000/api/auth/register -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"correct-horse-1"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+          printf 'Either party may terminate this agreement with 60 days written notice.\n' > contract.txt
+          curl -fsS -H "Authorization: Bearer $TOKEN" -F file=@contract.txt localhost:10000/api/documents/upload > /dev/null
+          curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            -d '{"query":"How much notice is needed to terminate?"}' localhost:10000/api/chat/query | grep -q '60 days'
+          docker stats --no-stream --format 'memory {{.MemUsage}}' md
+      - name: Container logs
+        if: always()
+        run: docker logs md 2>&1 | tail -50

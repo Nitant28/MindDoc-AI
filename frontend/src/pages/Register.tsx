@@ -1,82 +1,93 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../stores/useAuthStore';
+import { useId, useState, type FormEvent } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { authApi, errorMessage } from '../api';
+import AuthShell from '../components/AuthShell';
+import { Button } from '../components/ui/Button';
+import { Field, Input } from '../components/ui/Field';
+import { useToast } from '../components/ui/Toast';
+import { setToken } from '../lib/storage';
+import { useTitle } from '../lib/useTitle';
+import { PasswordInput } from './Login';
 
 export default function Register() {
-  const navigate = useNavigate();
-  const register = useAuthStore((s: any) => s.register);
+  useTitle('Create account');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
+  const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const toast = useToast();
+  const emailId = useId();
+  const pwId = useId();
+  const confirmId = useId();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const mismatch = confirm.length > 0 && confirm !== password;
+
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (password !== confirm) {
+      setError('Passwords do not match.');
+      return;
+    }
     setLoading(true);
-    setError('');
-    setSuccess(false);
+    setError(null);
     try {
-      if (!email || !password) {
-        setError('Please enter email and password.');
-        setLoading(false);
-        return;
-      }
-      await register(email, password);
-      setSuccess(true);
-      setTimeout(() => navigate('/login'), 1200);
+      const res = await authApi.register({ email: email.trim(), password });
+      setToken(res.access_token);
+      toast.success('Workspace created', 'Upload a document to get started.');
+      navigate('/dashboard', { replace: true });
     } catch (err) {
-      setError('Registration failed.');
+      const msg = errorMessage(err, 'Registration failed');
+      setError(msg);
+      toast.error('Registration failed', msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg1">
-      <div className="w-full max-w-md p-8 glass rounded-2xl border border-bg3">
-        <h2 className="text-3xl font-bold mb-6 gradient-text text-center">Create Account</h2>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-300">Email</label>
-            <input
-              className="w-full px-4 py-3 rounded-lg bg-bg2 text-white border border-bg3 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-              type="email"
-              placeholder="your@email.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-300">Password</label>
-            <input
-              className="w-full px-4 py-3 rounded-lg bg-bg2 text-white border border-bg3 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 rounded-lg bg-gradient-to-r from-primary via-accent to-green text-white font-bold text-lg shadow-glow hover:shadow-lg hover:scale-105 transition-all disabled:opacity-50"
-          >
-            {loading ? 'Creating Account...' : 'Register'}
-          </button>
-        </form>
-        {error && <div className="text-red-400 mt-4 text-center text-sm">{error}</div>}
-        {success && <div className="text-green-400 mt-4 text-center text-sm font-semibold">Registration successful! Redirecting...</div>}
-        <div className="mt-6 text-center text-gray-400 text-sm">
+    <AuthShell
+      title="Create your workspace"
+      subtitle="A private, isolated workspace for your documents."
+      footer={
+        <>
           Already have an account?{' '}
-          <button type="button" className="text-accent hover:text-primary underline font-medium transition" onClick={() => navigate('/login')}>
-            Login
-          </button>
-        </div>
-      </div>
-    </div>
+          <Link to="/login" className="font-medium text-accent-soft hover:underline">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={onSubmit} className="space-y-4">
+        <Field label="Email" htmlFor={emailId}>
+          <Input
+            id={emailId}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            placeholder="you@company.com"
+            required
+            autoFocus
+            className="h-10"
+          />
+        </Field>
+        <Field label="Password" htmlFor={pwId}>
+          <PasswordInput id={pwId} value={password} onChange={setPassword} autoComplete="new-password" />
+        </Field>
+        <Field label="Confirm password" htmlFor={confirmId} error={mismatch ? 'Passwords do not match.' : undefined}>
+          <PasswordInput id={confirmId} value={confirm} onChange={setConfirm} autoComplete="new-password" />
+        </Field>
+        {error ? (
+          <p className="rounded-lg border border-rose-500/30 bg-rose-500/[0.06] px-3 py-2 text-xs text-rose-700 dark:text-rose-300" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <Button type="submit" variant="primary" size="lg" className="w-full" loading={loading} disabled={mismatch}>
+          {loading ? 'Creating workspace…' : 'Create account'}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

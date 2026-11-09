@@ -1,105 +1,90 @@
-import os
 import logging
+import os
 import sys
+import threading
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
-from app.api import auth, documents, chat
-from app.api import notebook_api
-from app.api.compat_api import router as compat_router
-from app.api.finetune_api import router as finetune_router
-from app.database.models import create_tables, SessionLocal, init_default_tenant
+from app.api import auth, chat, documents, intel, vision
+from app.core.config import settings
+from app.database.models import Document, SessionLocal, create_tables, init_default_tenant
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stdout
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stdout)
+logger = logging.getLogger("minddoc")
 
-# Initialize DB on startup
-try:
+VERSION = "2.0.0"
+
+
+def _background_warmup():
+    """Load models and backfill v2 analytics for legacy documents without blocking startup."""
+    try:
+        from app.ml import embeddings
+        from app.services.ingestion import backfill_insights
+        embeddings.active_model_name()
+        embeddings.load_reranker_blocking()
+        db = SessionLocal()
+        try:
+            n = sum(backfill_insights(db, d) for d in db.query(Document).filter(Document.doc_type.is_(None)).all())
+            if n:
+                logger.info("Backfilled v2 insights for %d legacy documents", n)
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("warm-up failed: %s", e)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("MindDoc AI %s starting", VERSION)
     create_tables()
     db = SessionLocal()
-    init_default_tenant(db)
-    db.close()
-    logger.info("Database initialized successfully")
-except Exception as e:
-    logger.error(f"DB init error: {e}")
+    try:
+        init_default_tenant(db)
+    finally:
+        db.close()
+    if os.getenv("MINDDOC_SKIP_WARMUP") != "1":
+        threading.Thread(target=_background_warmup, daemon=True).start()
+    yield
+    logger.info("MindDoc AI shutting down")
 
-app = FastAPI(
-    title="MindDoc AI",
-    description="AI-powered document processing and chat",
-    version="1.0.0"
-)
 
-# CORS - allow all origins for production
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="MindDoc AI", description="Glass-box document intelligence: multimodal RAG, CV, knowledge graph",
+              version=VERSION, lifespan=lifespan)
 
-# GZip compression
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_credentials=True,
+                   allow_methods=["*"], allow_headers=["*"], expose_headers=["X-Highlight-Boxes"])
 
-# API Routes
+
+@app.exception_handler(Exception)
+async def unhandled(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s: %s", request.url.path, exc)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
-app.include_router(notebook_api.router, prefix="/api/notebook", tags=["notebook"])
-app.include_router(compat_router)
-app.include_router(finetune_router)
-
-
-@app.get("/api")
-def api_root():
-    return {"message": "MindDoc AI API is running. Use /api/docs for documentation."}
+app.include_router(intel.router, prefix="/api/intel", tags=["intelligence"])
+app.include_router(vision.router, prefix="/api/vision", tags=["vision"])
 
 
 @app.get("/api/health")
 def health():
-    return {
-        "status": "healthy",
-        "service": "MindDoc AI Backend",
-        "version": "1.0.0",
-        "database": "connected"
-    }
+    return {"status": "healthy", "service": "MindDoc AI Backend", "version": VERSION}
 
 
-@app.get("/api/test")
-def test():
-    return {"message": "API is working", "status": "healthy"}
-
-
-# Frontend SPA setup
-FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
-INDEX_HTML = os.path.join(FRONTEND_DIST, "index.html")
-
-if os.path.exists(FRONTEND_DIST):
-    assets_path = os.path.join(FRONTEND_DIST, "assets")
-    if os.path.exists(assets_path):
-        app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
-    logger.info(f"Frontend dist found at {FRONTEND_DIST}")
-else:
-    logger.warning(f"Frontend dist NOT found at {FRONTEND_DIST}")
-
-
-@app.get("/{full_path:path}")
-async def serve_spa(request: Request, full_path: str):
-    """Catch-all: serve index.html for all non-API routes (React SPA)."""
-    # Serve actual static files (vite.svg, etc.)
-    if full_path and os.path.exists(FRONTEND_DIST):
-        static_file = os.path.join(FRONTEND_DIST, full_path)
-        if os.path.isfile(static_file):
-            return FileResponse(static_file)
-    # For all React routes (/login, /register, /chat, etc.) serve index.html
-    if os.path.exists(INDEX_HTML):
-        return FileResponse(INDEX_HTML)
-    return JSONResponse({"detail": "Application not found"}, status_code=404)
+# Serve the built frontend (frontend/dist) from the same origin when present: one deployable unit.
+_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _DIST.is_dir():
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str):
+        if full_path.startswith("api/"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        target = (_DIST / full_path).resolve()
+        if full_path and target.is_file() and _DIST in target.parents:
+            return FileResponse(target)
+        return FileResponse(_DIST / "index.html")

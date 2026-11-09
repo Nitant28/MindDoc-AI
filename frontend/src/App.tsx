@@ -1,37 +1,82 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Suspense, lazy } from 'react';
-import { Layout } from './components/Layout';
-import './index.css';
+import { lazy, type ReactElement } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import Layout from './components/Layout';
+import { ConfirmProvider } from './components/ui/Dialog';
+import { ToastProvider } from './components/ui/Toast';
+import { getToken } from './lib/storage';
+import { ThemeProvider } from './lib/theme';
+import Chat from './pages/Chat';
+import Dashboard from './pages/Dashboard';
+import DocumentPage from './pages/DocumentPage';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Settings from './pages/Settings';
+import Upload from './pages/Upload';
 
-const Landing = lazy(() => import('./pages/Landing'));
-const Register = lazy(() => import('./pages/Register'));
-const Login = lazy(() => import('./pages/Login'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const Upload = lazy(() => import('./pages/Upload'));
-const Chat = lazy(() => import('./pages/Chat'));
-const Reminders = lazy(() => import('./pages/Reminders'));
-const FineTuneDashboard = lazy(() => import('./pages/FineTuneDashboard'));
-const Settings = lazy(() => import('./pages/Settings'));
+// Heavier, less-visited pages are code-split.
+const GraphPage = lazy(() => import('./pages/Graph'));
+const Vision = lazy(() => import('./pages/Vision'));
+const System = lazy(() => import('./pages/System'));
+const Timeline = lazy(() => import('./pages/Timeline'));
+
+/** Protected shell: no token → /login (remembering where the user was going). */
+function RequireAuth() {
+  const location = useLocation();
+  if (!getToken()) {
+    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
+  }
+  return <Layout />;
+}
+
+function PublicOnly({ children }: { children: ReactElement }) {
+  return getToken() ? <Navigate to="/dashboard" replace /> : children;
+}
+
+function RootRedirect() {
+  return <Navigate to={getToken() ? '/dashboard' : '/login'} replace />;
+}
 
 export default function App() {
   return (
-    <Router>
-      <Suspense fallback={<div className="w-screen h-screen flex items-center justify-center">Loading...</div>}>
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/login" element={<Login />} />
-          <Route element={<Layout />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/upload" element={<Upload />} />
-            <Route path="/chat" element={<Chat />} />
-            <Route path="/reminders" element={<Reminders />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/finetune" element={<FineTuneDashboard />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
-      </Suspense>
-    </Router>
+    <ThemeProvider>
+      <ToastProvider>
+        <ConfirmProvider>
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <Routes>
+              <Route
+                path="/login"
+                element={
+                  <PublicOnly>
+                    <Login />
+                  </PublicOnly>
+                }
+              />
+              <Route
+                path="/register"
+                element={
+                  <PublicOnly>
+                    <Register />
+                  </PublicOnly>
+                }
+              />
+              <Route element={<RequireAuth />}>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/upload" element={<Upload />} />
+                <Route path="/documents" element={<Navigate to="/upload" replace />} />
+                <Route path="/documents/:id" element={<DocumentPage />} />
+                <Route path="/chat" element={<Chat />} />
+                <Route path="/graph" element={<GraphPage />} />
+                <Route path="/timeline" element={<Timeline />} />
+                <Route path="/vision" element={<Vision />} />
+                <Route path="/system" element={<System />} />
+                <Route path="/settings" element={<Settings />} />
+              </Route>
+              <Route path="/" element={<RootRedirect />} />
+              <Route path="*" element={<RootRedirect />} />
+            </Routes>
+          </BrowserRouter>
+        </ConfirmProvider>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }

@@ -1,418 +1,211 @@
-def parse_document(file_path: str) -> str:
-    """Parse a document file and return its extracted text."""
-    with open(file_path, "rb") as f:
-        return extract_text_from_file(f, file_path)
+"""Multimodal document parsing.
 
-def chunk_document(text: str) -> list:
-    """Chunk text using the default chunker."""
-    return chunk_text(text)
-import os
-from PyPDF2 import PdfReader
-try:
-    try:
-        from docx import Document as DocxDocument  # type: ignore[import-unresolved]
-    except ImportError:
-        DocxDocument = None
-    DOCX_AVAILABLE = True
-except Exception:
-    DOCX_AVAILABLE = False
-from sqlalchemy.orm import Session
-from app.core.config import settings
-from app.database.models import Document, DocumentChunk
-import json
-import numpy as np
+PDF  → PyMuPDF text layer per page; pages without a usable text layer are rendered at 2x and sent
+       through the computer-vision OCR pipeline; native tables are converted to Markdown; embedded
+       images are counted as figures (and the largest one can be captioned by a vision LLM).
+DOCX → paragraphs (with heading levels) + tables as Markdown.
+IMG  → CV pipeline (quality, deskew, layout, OCR) + optional vision-LLM caption.
+TXT/MD → decoded text.
+
+Output is page-aware so every chunk (and therefore every citation) knows its page number.
+"""
+from __future__ import annotations
+
 import io
 import logging
-from typing import Tuple, Optional
+import zipfile
+from dataclasses import dataclass, field
+
+from PIL import Image as PILImage
+
+from app.core.config import settings
+from app.vision import cv
 
 logger = logging.getLogger(__name__)
 
 try:
-    try:
-        import pytesseract  # type: ignore[import-unresolved]
-    except ImportError:
-        pytesseract = None
-    from PIL import Image
-    OCR_AVAILABLE = True
+    import fitz  # PyMuPDF
+    FITZ_AVAILABLE = True
 except ImportError:
-    OCR_AVAILABLE = False
+    FITZ_AVAILABLE = False
 
 try:
-    import easyocr
-    EASYOCR_AVAILABLE = True
-    easyocr_reader = None  # Initialize on first use
-except ImportError:
-    EASYOCR_AVAILABLE = False
-
-try:
-    try:
-        from unstructured.partition.auto import partition  # type: ignore[import-unresolved]
-    except ImportError:
-        partition = None
-    UNSTRUCTURED_AVAILABLE = True
-except ImportError:
-    UNSTRUCTURED_AVAILABLE = False
-
-try:
-    try:
-        import pdfplumber  # type: ignore[import-unresolved]
-    except ImportError:
-        pdfplumber = None
+    import pdfplumber
     PDFPLUMBER_AVAILABLE = True
 except ImportError:
     PDFPLUMBER_AVAILABLE = False
 
 try:
-    try:
-        import fitz  # type: ignore[import-unresolved]  # PyMuPDF
-    except ImportError:
-        fitz = None
-    FITZ_AVAILABLE = True
-except ImportError:
-    FITZ_AVAILABLE = False
+    from docx import Document as DocxDocument
+    DOCX_AVAILABLE = True
+except Exception:
+    DOCX_AVAILABLE = False
+
+IMAGE_EXT = (".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".gif", ".webp")
+TEXT_EXT = (".txt", ".md", ".markdown", ".csv")
+ALLOWED_EXT = (".pdf", ".docx", *IMAGE_EXT, *TEXT_EXT)
+MIN_TEXT_CHARS = 40
 
 
-def get_easyocr_reader():
-    """Lazy load EasyOCR reader to avoid startup delays."""
-    global easyocr_reader
-    if easyocr_reader is None and EASYOCR_AVAILABLE:
-        easyocr_reader = easyocr.Reader(['en'])
-    return easyocr_reader
+@dataclass
+class Page:
+    number: int
+    text: str
+    report: dict = field(default_factory=dict)
 
 
-def extract_text_from_image(img: Image.Image, use_ocr_priority: bool = False) -> str:
-    """
-    Extract text from image with multiple OCR fallbacks.
-    
-    Args:
-        img: PIL Image object
-        use_ocr_priority: If True, prioritize OCR engines over simple text detection
-    
-    Returns:
-        Extracted text string
-    """
-    text = ""
-    
-    # Try EasyOCR first (best accuracy for complex layouts)
-    if EASYOCR_AVAILABLE:
-        try:
-            reader = get_easyocr_reader()
-            if reader:
-                ocr_results = reader.readtext(img)
-                # Fix: Ensure ocr_results is a list of tuples/lists, not dicts, and types are correct
-                extracted = " ".join([
-                    res[1] for res in ocr_results
-                    if isinstance(res, (list, tuple))
-                    and len(res) > 2
-                    and isinstance(res[1], str)
-                    and res[1].strip()
-                    and isinstance(res[2], (int, float))
-                    and res[2] > 0.3
-                ])
-                if extracted.strip():
-                    return extracted
-        except Exception as e:
-            logger.warning(f"EasyOCR failed: {e}")
-    
-    # Fallback to Tesseract
-    if OCR_AVAILABLE:
-        try:
-            text = pytesseract.image_to_string(img)
-            if text.strip():
-                return text
-        except Exception as e:
-            logger.warning(f"Tesseract failed: {e}")
-    
-    return text
+@dataclass
+class ParsedDocument:
+    pages: list[Page]
+    kind: str
+
+    @property
+    def text(self) -> str:
+        if len(self.pages) == 1:
+            return self.pages[0].text
+        return "\n\n".join(f"--- Page {p.number} ---\n{p.text}" for p in self.pages if p.text.strip())
+
+    @property
+    def vision(self) -> dict:
+        reports = [{"page": p.number, **p.report} for p in self.pages]
+        scores = [r.get("quality_score", 1.0) for r in reports]
+        return {"overall_quality": round(sum(scores) / len(scores), 3) if scores else None,
+                "ocr_pages": sum(r.get("method") == "ocr" for r in reports), "pages": reports}
 
 
-def enhance_pdf_page_image(pix) -> Image.Image:
-    """Enhance PDF page image for better OCR results."""
-    img = Image.open(io.BytesIO(pix.tobytes("ppm")))
-    
-    # Convert to RGB if needed
-    if img.mode in ('RGBA', 'LA', 'P'):
-        img = img.convert('RGB')
-    
-    return img
-
-def extract_text_from_file(file_obj, filename: str) -> str:
-    """
-    Extract complete text from files with multiple fallback methods and OCR.
-    Handles both text-based and image-based PDFs seamlessly.
-    """
-    full_text = ""
-    
-    # Try unstructured first for advanced parsing
-    if UNSTRUCTURED_AVAILABLE:
-        try:
-            file_obj.seek(0)
-            elements = partition(file=file_obj, filename=filename)
-            text = "\n".join([str(el) for el in elements])
-            if text.strip() and len(text) > 50:
-                logger.info(f"Successfully extracted text using unstructured library from {filename}")
-                return text
-        except Exception as e:
-            logger.debug(f"Unstructured extraction failed: {e}")
-
-    # PDF extraction with GUARANTEED complete text capture
-    if filename.lower().endswith('.pdf'):
-        return extract_pdf_comprehensive(file_obj, filename)
-    
-    # DOCX extraction
-    elif filename.lower().endswith('.docx'):
-        return extract_docx(file_obj)
-    
-    # Image extraction with OCR
-    elif filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')):
-        return extract_image(file_obj)
-    
-    else:
-        raise ValueError("Unsupported file type. Supported: PDF, DOCX, images (PNG, JPG, JPEG, TIFF, BMP, GIF).")
+def _table_to_md(rows: list[list]) -> str:
+    rows = [[("" if c is None else str(c)).replace("\n", " ").strip() for c in r] for r in rows if r]
+    if not rows:
+        return ""
+    width = max(len(r) for r in rows)
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    out = ["| " + " | ".join(rows[0]) + " |", "|" + " --- |" * width]
+    out += ["| " + " | ".join(r) + " |" for r in rows[1:]]
+    return "\n".join(out)
 
 
-def extract_pdf_comprehensive(file_obj, filename: str) -> str:
-    """
-    Comprehensive PDF extraction handling both text and image pages.
-    """
-    text = ""
-    
-    # Method 1: PyMuPDF (fitz) - BEST for hybrid PDFs
+def _check_pages(n: int) -> None:
+    if n > settings.max_pdf_pages:
+        raise ValueError(f"PDF has {n} pages; the limit is {settings.max_pdf_pages}. Split the file and upload the parts.")
+
+
+def parse_pdf(data: bytes) -> ParsedDocument:
+    pages: list[Page] = []
     if FITZ_AVAILABLE:
+        doc = fitz.open(stream=data, filetype="pdf")
         try:
-            file_obj.seek(0)
-            doc = fitz.open(stream=file_obj.read(), filetype="pdf")
-            logger.info(f"Processing PDF with PyMuPDF: {filename} ({len(doc)} pages)")
-            
-            for page_num, page in enumerate(doc):
-                page_text = page.get_text()
-                
-                # If page has text content, use it
-                if page_text.strip() and len(page_text.strip()) > 20:
-                    text += f"--- Page {page_num + 1} ---\n{page_text}\n"
+            _check_pages(len(doc))
+            for i, page in enumerate(doc, start=1):
+                text = page.get_text("text") or ""
+                n_images = len(page.get_images(full=True))
+                tables_md = []
+                try:
+                    for t in page.find_tables().tables:
+                        md = _table_to_md(t.extract())
+                        if md:
+                            tables_md.append(md)
+                except Exception:
+                    pass
+                if len(text.strip()) >= MIN_TEXT_CHARS:
+                    if tables_md:
+                        text += "\n\n[Tables]\n" + "\n\n".join(tables_md)
+                    report = {"method": "text", "ocr_confidence": None, "blur_score": None, "quality": "good",
+                              "quality_score": 1.0, "skew_angle": 0.0, "tables_detected": len(tables_md),
+                              "figures_detected": n_images}
+                else:  # scanned / image-only page → computer vision OCR
+                    area = max(1.0, page.rect.width * page.rect.height)  # cap render size for huge page boxes
+                    zoom = min(2.0, (settings.max_image_pixels / area) ** 0.5)
+                    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+                    img = PILImage.open(io.BytesIO(pix.tobytes("png")))
+                    ocr_text, report = cv.ocr_page_image(img)
+                    report["tables_detected"] = max(report["tables_detected"], len(tables_md))
+                    text = ocr_text or text
+                pages.append(Page(i, text.strip(), report))
+        finally:
+            doc.close()
+    elif PDFPLUMBER_AVAILABLE:
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            _check_pages(len(pdf.pages))
+            for i, page in enumerate(pdf.pages, start=1):
+                text = page.extract_text() or ""
+                if len(text.strip()) < MIN_TEXT_CHARS:
+                    text, report = cv.ocr_page_image(page.to_image(resolution=200).original)
                 else:
-                    # Page is likely scanned/image-based, use OCR
-                    logger.debug(f"Page {page_num + 1} has minimal text, applying OCR...")
-                    ocr_text = extract_text_from_pdf_page(page, page_num + 1)
-                    if ocr_text.strip():
-                        text += ocr_text
-            
-            doc.close()
-            
-            if text.strip():
-                logger.info(f"Successfully extracted text from {filename} using PyMuPDF")
-                return text
-        except Exception as e:
-            logger.warning(f"PyMuPDF error on {filename}: {e}")
-    
-    # Method 2: pdfplumber - alternative text extraction with table support
-    if PDFPLUMBER_AVAILABLE:
-        try:
-            file_obj.seek(0)
-            with pdfplumber.open(file_obj) as pdf:
-                text = ""
-                logger.info(f"Processing PDF with pdfplumber: {filename} ({len(pdf.pages)} pages)")
-                
-                for page_num, page in enumerate(pdf.pages):
-                    page_text = page.extract_text()
-                    
-                    if page_text and len(page_text.strip()) > 20:
-                        text += f"--- Page {page_num + 1} ---\n{page_text}\n"
-                    else:
-                        # Try OCR if text extraction minimal
-                        logger.debug(f"Page {page_num + 1} has minimal text, applying OCR via pdfplumber...")
-                        ocr_text = extract_image_from_pdfplumber_page(page, page_num + 1)
-                        if ocr_text.strip():
-                            text += ocr_text
-                    
-                    # Extract and format tables
-                    try:
-                        tables = page.extract_tables()
-                        if tables:
-                            text += "\n[Tables]\n"
-                            for table in tables:
-                                for row in table:
-                                    row_text = " | ".join([str(cell) if cell else "" for cell in row])
-                                    text += row_text + "\n"
-                                text += "\n"
-                    except Exception:
-                        pass
-                
-                if text.strip():
-                    logger.info(f"Successfully extracted text from {filename} using pdfplumber")
-                    return text
-        except Exception as e:
-            logger.warning(f"pdfplumber error on {filename}: {e}")
-    
-    # Method 3: PyPDF2 fallback
-    try:
-        file_obj.seek(0)
-        reader = PdfReader(file_obj)
-        text = ""
-        logger.info(f"Processing PDF with PyPDF2: {filename} ({len(reader.pages)} pages)")
-        
-        for page_num, page in enumerate(reader.pages):
-            page_text = page.extract_text()
-            if page_text and len(page_text.strip()) > 10:
-                text += f"--- Page {page_num + 1} ---\n{page_text}\n"
-        
-        if text.strip():
-            logger.info(f"Successfully extracted text from {filename} using PyPDF2")
-            return text
-    except Exception as e:
-        logger.warning(f"PyPDF2 error on {filename}: {e}")
-    
-    # Final fallback: Full OCR on all pages if text extraction failed
-    if FITZ_AVAILABLE:
-        try:
-            file_obj.seek(0)
-            doc = fitz.open(stream=file_obj.read(), filetype="pdf")
-            text = ""
-            logger.info(f"Applying full OCR to {filename} (all pages)...")
-            
-            for page_num, page in enumerate(doc):
-                ocr_text = extract_text_from_pdf_page(page, page_num + 1)
-                if ocr_text.strip():
-                    text += ocr_text
-            
-            doc.close()
-            
-            if text.strip():
-                logger.info(f"Successfully extracted text from {filename} using full OCR")
-                return text
-        except Exception as e:
-            logger.error(f"Full OCR extraction failed on {filename}: {e}")
-    
-    logger.error(f"Could not extract text from {filename}")
-    return ""
+                    report = {"method": "text", "quality": "good", "quality_score": 1.0}
+                pages.append(Page(i, text.strip(), report))
+    else:
+        raise RuntimeError("No PDF backend installed (pip install pymupdf)")
+    return ParsedDocument(pages, "pdf")
 
 
-def extract_text_from_pdf_page(page, page_num: int) -> str:
-    """Extract text from a single PDF page using OCR."""
-    try:
-        # Generate high-quality image from page
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better OCR
-        img = enhance_pdf_page_image(pix)
-        
-        # Extract text via OCR
-        ocr_text = extract_text_from_image(img, use_ocr_priority=True)
-        
-        if ocr_text.strip():
-            return f"--- Page {page_num} (OCR) ---\n{ocr_text}\n"
-    except Exception as e:
-        logger.warning(f"Failed to OCR page {page_num}: {e}")
-    
-    return ""
-
-
-def extract_image_from_pdfplumber_page(page, page_num: int) -> str:
-    """Extract text from pdfplumber page image using OCR."""
-    try:
-        # Get page image
-        img = page.to_image()
-        
-        # Extract text via OCR
-        ocr_text = extract_text_from_image(img.original, use_ocr_priority=True)
-        
-        if ocr_text.strip():
-            return f"--- Page {page_num} (OCR) ---\n{ocr_text}\n"
-    except Exception as e:
-        logger.warning(f"Failed to OCR pdfplumber page {page_num}: {e}")
-    
-    return ""
-
-
-def extract_docx(file_obj) -> str:
-    """Extract text from DOCX files."""
+def parse_docx(data: bytes) -> ParsedDocument:
     if not DOCX_AVAILABLE:
-        raise RuntimeError("python-docx is not installed. Install it with `pip install python-docx`")
-    
+        raise RuntimeError("python-docx is not installed")
+    # A .docx is a zip: refuse zip bombs before python-docx inflates it.
     try:
-        file_obj.seek(0)
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            infos = z.infolist()
+    except zipfile.BadZipFile:
+        raise ValueError("Not a valid .docx file")
+    total = sum(i.file_size for i in infos)
+    if len(infos) > 5000 or total > settings.max_docx_uncompressed_mb * 1024 * 1024:
+        raise ValueError(f"DOCX expands to {total // (1024 * 1024)} MB in {len(infos)} parts; "
+                         f"the limit is {settings.max_docx_uncompressed_mb} MB")
+    d = DocxDocument(io.BytesIO(data))
+    parts = []
+    for para in d.paragraphs:
+        t = para.text.strip()
+        if not t:
+            continue
+        style = (para.style.name or "").lower() if para.style is not None else ""
+        if style.startswith("heading"):
+            level = "".join(ch for ch in style if ch.isdigit()) or "2"
+            parts.append("#" * min(int(level), 6) + " " + t)
+        else:
+            parts.append(t)
+    for table in d.tables:
+        md = _table_to_md([[c.text for c in row.cells] for row in table.rows])
+        if md:
+            parts.append(md)
+    return ParsedDocument([Page(1, "\n\n".join(parts), {"method": "text", "quality": "good", "quality_score": 1.0})],
+                          "docx")
+
+
+def parse_image(data: bytes) -> ParsedDocument:
+    img = PILImage.open(io.BytesIO(data))  # lazy: reads the header only, so the size check runs before decoding
+    if img.width * img.height > settings.max_image_pixels:
+        raise ValueError(f"Image is {img.width}×{img.height} px; the limit is {settings.max_image_pixels:,} pixels")
+    try:
+        img.seek(0)  # first frame of animated GIF / multi-page TIFF
     except Exception:
         pass
-    
-    try:
-        doc = DocxDocument(file_obj)
-        text = "\n".join([para.text for para in doc.paragraphs])
-        if text.strip():
-            logger.info("Successfully extracted text from DOCX")
-            return text
-    except Exception as e:
-        logger.error(f"DOCX extraction failed: {e}")
-    
-    return ""
+    img = img.convert("RGB")
+    text, report = cv.ocr_page_image(img)
+    caption = cv.caption_image(img)
+    if caption:
+        report["caption"] = caption
+        text = f"{text}\n\n[Image description] {caption}".strip()
+    return ParsedDocument([Page(1, text.strip(), report)], "image")
 
 
-def extract_image(file_obj) -> str:
-    """Extract text from image files using OCR."""
-    try:
-        file_obj.seek(0)
-        img = Image.open(file_obj)
-        
-        logger.info(f"Extracting text from image ({img.format}, {img.size})...")
-        
-        # Convert to RGB if needed
-        if img.mode in ('RGBA', 'LA', 'P'):
-            img = img.convert('RGB')
-        
-        text = extract_text_from_image(img, use_ocr_priority=True)
-        
-        if text.strip():
-            logger.info("Successfully extracted text from image")
-            return text
-    except Exception as e:
-        logger.error(f"Image text extraction failed: {e}")
-    
-    return ""
-
-def chunk_text(text: str) -> list:
-    """Simple character-based chunker to avoid LangChain dependency bloat."""
-    chunk_size = 1000
-    chunk_overlap = 200
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunks.append(text[start:end])
-        start += (chunk_size - chunk_overlap)
-    return chunks
-
-def create_vector_store(chunks, embeddings):
-    # retained for compatibility; in this project we store embeddings in DB and use a Python retriever
-    return list(zip(chunks, embeddings))
-
-def save_document(db: Session, filename: str, content: str, tenant_id: int):
-    print(f"Saving document: {filename}, tenant_id: {tenant_id}")
-    doc = Document(filename=filename, content=content, tenant_id=tenant_id)
-    db.add(doc)
-    db.commit()
-    db.refresh(doc)
-    print(f"Document saved with id: {doc.id}")
-    chunks = chunk_text(content)
-    try:
-        # Compute embeddings using sentence-transformers (CPU friendly)
+def parse_text(data: bytes) -> ParsedDocument:
+    for enc in ("utf-8-sig", "utf-16", "latin-1"):
         try:
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer('all-MiniLM-L6-v2')
-        except Exception as e:
-            print(f"SentenceTransformer failed: {e}, skipping embeddings")
-            raise RuntimeError('Embeddings not available')
-        embeddings = model.encode(chunks, show_progress_bar=False)
-        for i, chunk in enumerate(chunks):
-            # convert numpy array to list for JSON storage
-            emb_list = np.array(embeddings[i]).astype(float).tolist()
-            emb_str = json.dumps(emb_list)
-            chunk_obj = DocumentChunk(document_id=doc.id, chunk_text=chunk, embedding=emb_str)
-            db.add(chunk_obj)
-        db.commit()
-        print("Chunks saved")
-    except Exception as e:
-        print(f"Embeddings failed: {e}, saving chunks without embeddings")
-        # Save chunks without embeddings, so fallback to token overlap works
-        for chunk in chunks:
-            chunk_obj = DocumentChunk(document_id=doc.id, chunk_text=chunk, embedding=None)
-            db.add(chunk_obj)
-        db.commit()
-        print("Chunks saved without embeddings")
-    return doc
+            text = data.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    return ParsedDocument([Page(1, text, {"method": "text", "quality": "good", "quality_score": 1.0})], "text")
+
+
+def parse_document(data: bytes, filename: str) -> ParsedDocument:
+    name = (filename or "").lower()
+    if name.endswith(".pdf"):
+        return parse_pdf(data)
+    if name.endswith(".docx"):
+        return parse_docx(data)
+    if name.endswith(IMAGE_EXT):
+        return parse_image(data)
+    if name.endswith(TEXT_EXT):
+        return parse_text(data)
+    raise ValueError(f"Unsupported file type: {filename}")

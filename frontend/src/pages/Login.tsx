@@ -1,82 +1,109 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../stores/useAuthStore';
+import { useId, useState, type FormEvent } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { authApi, errorMessage } from '../api';
+import AuthShell from '../components/AuthShell';
+import { Button } from '../components/ui/Button';
+import { Field, Input } from '../components/ui/Field';
+import { useToast } from '../components/ui/Toast';
+import { setToken } from '../lib/storage';
+import { useTitle } from '../lib/useTitle';
+
+export function PasswordInput({ id, value, onChange, autoComplete }: { id: string; value: string; onChange: (v: string) => void; autoComplete: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        type={show ? 'text' : 'password'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete={autoComplete}
+        required
+        className="h-10 pr-16"
+      />
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-medium text-muted hover:bg-elevated hover:text-fg"
+        aria-label={show ? 'Hide password' : 'Show password'}
+        aria-pressed={show}
+      >
+        {show ? 'Hide' : 'Show'}
+      </button>
+    </div>
+  );
+}
 
 export default function Login() {
-  const navigate = useNavigate();
-  const login = useAuthStore((s: any) => s.login);
+  useTitle('Sign in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const toast = useToast();
+  const emailId = useId();
+  const pwId = useId();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const from = (location.state as { from?: string } | null)?.from;
+
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
-    setSuccess(false);
+    setError(null);
     try {
-      if (!email || !password) {
-        setError('Please enter email and password.');
-        setLoading(false);
-        return;
-      }
-      await login(email, password);
-      setSuccess(true);
-      setTimeout(() => navigate('/dashboard'), 1200);
+      const res = await authApi.login({ email: email.trim(), password });
+      setToken(res.access_token);
+      navigate(from && from.startsWith('/') && !from.startsWith('/login') ? from : '/dashboard', { replace: true });
     } catch (err) {
-      setError('Login failed.');
+      const msg = errorMessage(err, 'Login failed');
+      setError(msg);
+      toast.error('Sign in failed', msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg1">
-      <div className="w-full max-w-md p-8 glass rounded-2xl border border-bg3">
-        <h2 className="text-3xl font-bold mb-6 gradient-text text-center">Welcome Back</h2>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-300">Email</label>
-            <input
-              className="w-full px-4 py-3 rounded-lg bg-bg2 text-white border border-bg3 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-              type="email"
-              placeholder="your@email.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-300">Password</label>
-            <input
-              className="w-full px-4 py-3 rounded-lg bg-bg2 text-white border border-bg3 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 rounded-lg bg-gradient-to-r from-primary via-accent to-green text-white font-bold text-lg shadow-glow hover:shadow-lg hover:scale-105 transition-all disabled:opacity-50"
-          >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-        {error && <div className="text-red-400 mt-4 text-center text-sm">{error}</div>}
-        {success && <div className="text-green-400 mt-4 text-center text-sm font-semibold">Login successful! Redirecting...</div>}
-        <div className="mt-6 text-center text-gray-400 text-sm">
-          Don't have an account?{' '}
-          <button type="button" className="text-accent hover:text-primary underline font-medium transition" onClick={() => navigate('/register')}>
-            Register
-          </button>
-        </div>
-      </div>
-    </div>
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to your MindDoc workspace."
+      footer={
+        <>
+          Don’t have an account?{' '}
+          <Link to="/register" className="font-medium text-accent-soft hover:underline">
+            Create one
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={onSubmit} className="space-y-4" noValidate={false}>
+        <Field label="Email" htmlFor={emailId}>
+          <Input
+            id={emailId}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            placeholder="you@company.com"
+            required
+            autoFocus
+            className="h-10"
+          />
+        </Field>
+        <Field label="Password" htmlFor={pwId}>
+          <PasswordInput id={pwId} value={password} onChange={setPassword} autoComplete="current-password" />
+        </Field>
+        {error ? (
+          <p className="rounded-lg border border-rose-500/30 bg-rose-500/[0.06] px-3 py-2 text-xs text-rose-700 dark:text-rose-300" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <Button type="submit" variant="primary" size="lg" className="w-full" loading={loading}>
+          {loading ? 'Signing in…' : 'Sign in'}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

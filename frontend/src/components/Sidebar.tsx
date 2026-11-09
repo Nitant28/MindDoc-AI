@@ -1,298 +1,118 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import api from '../api';
+import { useEffect, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { cx } from '../lib/cx';
+import { LogoMark } from './Logo';
+import { Button, buttonClass } from './ui/Button';
+import { Icon, type IconName } from './ui/Icon';
 
-interface SidebarProps {
-  isOpen: boolean;
-  toggleSidebar: () => void;
+export interface NavItem {
+  to: string;
+  label: string;
+  icon: IconName;
+  section: 'workspace' | 'intelligence' | 'account';
+  match?: string[];
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
-  const [activeSection, setActiveSection] = useState('documents');
-  const [documents, setDocuments] = useState([]);
-  const [sessions, setSessions] = useState([]);
-  const [savedItems, setSavedItems] = useState([]);
+export const NAV_ITEMS: NavItem[] = [
+  { to: '/dashboard', label: 'Dashboard', icon: 'dashboard', section: 'workspace' },
+  { to: '/chat', label: 'Chat', icon: 'chat', section: 'workspace' },
+  { to: '/upload', label: 'Documents', icon: 'file', section: 'workspace', match: ['/upload', '/documents'] },
+  { to: '/graph', label: 'Knowledge Graph', icon: 'graph', section: 'intelligence' },
+  { to: '/timeline', label: 'Timeline', icon: 'calendar', section: 'intelligence' },
+  { to: '/vision', label: 'Vision Lab', icon: 'eye', section: 'intelligence' },
+  { to: '/system', label: 'Evaluation & System', icon: 'activity', section: 'intelligence' },
+  { to: '/settings', label: 'Settings', icon: 'settings', section: 'account' },
+];
+
+const SECTIONS: Array<{ id: NavItem['section']; label: string }> = [
+  { id: 'workspace', label: 'Workspace' },
+  { id: 'intelligence', label: 'Intelligence' },
+  { id: 'account', label: 'Account' },
+];
+
+export function isNavActive(item: NavItem, pathname: string): boolean {
+  return (item.match ?? [item.to]).some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+interface SidebarProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export default function Sidebar({ open, onClose }: SidebarProps) {
+  const { pathname } = useLocation();
+  const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [docsRes, sessRes, savedRes] = await Promise.all([
-          api.get('/documents/list'),
-          api.get('/chat/sessions'),
-          api.get('/chat/saved_items')
-        ]);
-        setDocuments(docsRes.data);
-        setSessions(sessRes.data);
-        setSavedItems(savedRes.data);
-      } catch (error) {
-        console.error(error);
-      }
-    };
-    fetchData();
-  }, []);
-
-  const sections = [
-    { id: 'documents', label: 'All Documents', icon: <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>, tooltip: 'Browse and manage all your uploaded documents.' },
-    { id: 'sessions', label: 'AI Chats', icon: <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"/><path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z"/></svg>, tooltip: 'Conversations and Q&A with your documents.' },
-    { id: 'saved', label: 'Saved Insights', icon: <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>, tooltip: 'Your starred documents, notes, and extracted insights.' }
-  ];
+    if (open) closeRef.current?.focus();
+  }, [open]);
 
   return (
-    <div className={`fixed inset-y-0 left-0 z-50 w-80 bg-white shadow-lg transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out`}>
-      <div className="flex items-center justify-between p-4 border-b">
-        <h2 className="text-xl font-extrabold gradient-text">MindDoc AI</h2>
-        <button onClick={toggleSidebar} className="text-gray-500 hover:text-gray-700" title="Close sidebar">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      
-      <div className="flex flex-col h-full">
-        <div className="flex border-b">
-          {sections.map(section => (
-            <button
-              key={section.id}
-              onClick={() => setActiveSection(section.id)}
-              className={`flex-1 py-3 px-2 text-center text-sm font-medium ${
-                activeSection === section.id ? 'bg-blue-100 text-blue-600 border-b-2 border-blue-600' : 'text-gray-600 hover:bg-gray-50'
-              }`}
-              title={section.tooltip}
-            >
-              <span className="mr-1">{section.icon}</span>
-              {section.label}
-            </button>
-          ))}
+    <>
+      {open ? (
+        <div className="fixed inset-0 z-40 animate-fade-in bg-black/50 backdrop-blur-[1px] lg:hidden" onClick={onClose} aria-hidden="true" />
+      ) : null}
+      <aside
+        id="app-sidebar"
+        aria-label="Primary"
+        className={cx(
+          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-line bg-surface transition-[transform,visibility] duration-200 lg:visible lg:w-60 lg:translate-x-0',
+          open ? 'visible translate-x-0 shadow-2xl lg:shadow-none' : 'invisible -translate-x-full',
+        )}
+      >
+        <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
+          <Link to="/dashboard" className="flex min-w-0 items-center gap-2.5 rounded-md">
+            <LogoMark size={26} />
+            <div className="min-w-0 leading-tight">
+              <div className="text-sm font-semibold tracking-tight text-fg">MindDoc AI</div>
+              <div className="text-[10px] font-medium uppercase tracking-wider text-subtle">Document intelligence</div>
+            </div>
+          </Link>
+          <Button ref={closeRef} variant="ghost" size="icon-sm" className="lg:hidden" aria-label="Close navigation" onClick={onClose} icon="x" />
         </div>
-        
-        <div className="flex-1 overflow-y-auto p-4">
-          {activeSection === 'documents' && (
-            <div>
-              <h3 className="text-lg font-semibold mb-3">Recent Documents</h3>
-              <ul className="space-y-2">
-                {documents.map((doc: any) => (
-                  <li key={(doc as any).id} className="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100">
-                    <span className="text-sm truncate flex-1">{doc.filename}</span>
-                    <div className="flex space-x-1">
-                      <button
-                        onClick={() => window.location.href = `/chat?document=${doc.id}`}
-                        className="text-blue-500 hover:text-blue-700 text-xs"
-                        title="Chat"
-                      >
-                        💬
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const isSaved = savedItems.some((item: any) => item.title === doc.filename);
-                          if (isSaved) {
-                            // Unsave
-                            const savedItem = savedItems.find((item: any) => item.title === doc.filename);
-                            const saved: any = savedItem;
-                            if (saved && saved.id) {
-                              try {
-                                await api.delete(`/chat/saved_items/${saved.id}`);
-                                const savedRes = await api.get('/chat/saved_items');
-                                setSavedItems(savedRes.data);
-                              } catch (error) {
-                                alert('Unsave failed');
-                              }
-                            }
-                          } else {
-                            // Save
-                            try {
-                              await api.post(`/documents/save/${doc.id}`);
-                              const savedRes = await api.get('/chat/saved_items');
-                              setSavedItems(savedRes.data);
-                            } catch (error) {
-                              alert('Save failed');
-                            }
-                          }
-                        }}
-                        className={`text-xs ${savedItems.some((item: any) => item.title === doc.filename) ? 'text-yellow-600' : 'text-yellow-500 hover:text-yellow-700'}`}
-                        title={savedItems.some((item: any) => item.title === doc.filename) ? 'Unsave' : 'Save'}
-                      >
-                        {savedItems.some((item: any) => item.title === doc.filename) ? '★' : '☆'}
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (confirm('Edit filename?')) {
-                            const newName = prompt('New filename:', doc.filename);
-                            if (newName) {
-                              try {
-                                await api.put(`/documents/edit/${doc.id}`, { filename: newName });
-                                const docsRes = await api.get('/documents/list');
-                                setDocuments(docsRes.data);
-                              } catch (error) {
-                                alert('Edit failed');
-                              }
-                            }
-                          }
-                        }}
-                        className="text-green-500 hover:text-green-700 text-xs"
-                        title="Edit"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (confirm('Delete document?')) {
-                            try {
-                              await api.delete(`/documents/delete/${doc.id}`);
-                              const docsRes = await api.get('/documents/list');
-                              setDocuments(docsRes.data);
-                            } catch (error) {
-                              alert('Delete failed');
-                            }
-                          }
-                        }}
-                        className="text-red-500 hover:text-red-700 text-xs"
-                        title="Delete"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <Link to="/upload" className="mt-4 inline-block bg-green-500 text-white px-3 py-2 rounded text-sm hover:bg-green-600">
-                + Upload New
-              </Link>
-            </div>
-          )}
-          
-          {activeSection === 'sessions' && (
-            <div>
-              <h3 className="text-lg font-semibold mb-3">Chat Sessions</h3>
-              <ul className="space-y-2">
-                {sessions.map((session: any) => (
-                  <li key={session.id} className="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100">
-                    <span className="text-sm truncate flex-1" onClick={() => window.location.href = `/chat?session=${session.id}`} style={{cursor: 'pointer'}}>{session.title}</span>
-                    <div className="flex space-x-1">
-                      <button
-                        onClick={async () => {
-                          if (confirm('Edit session title?')) {
-                            const newTitle = prompt('New title:', session.title);
-                            if (newTitle) {
-                              try {
-                                await api.put(`/chat/sessions/${session.id}`, { title: newTitle });
-                                const sessRes = await api.get('/chat/sessions');
-                                setSessions(sessRes.data);
-                              } catch (error) {
-                                alert('Edit failed');
-                              }
-                            }
-                          }
-                        }}
-                        className="text-green-500 hover:text-green-700 text-xs"
-                        title="Edit"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (confirm('Delete session?')) {
-                            try {
-                              await api.delete(`/chat/sessions/${session.id}`);
-                              const sessRes = await api.get('/chat/sessions');
-                              setSessions(sessRes.data);
-                            } catch (error) {
-                              alert('Delete failed');
-                            }
-                          }
-                        }}
-                        className="text-red-500 hover:text-red-700 text-xs"
-                        title="Delete"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <Link to="/chat" className="mt-4 inline-block bg-blue-500 text-white px-3 py-2 rounded text-sm hover:bg-blue-600">
-                + New Chat
-              </Link>
-            </div>
-          )}
-          
-          {activeSection === 'saved' && (
-            <div>
-              <h3 className="text-lg font-semibold mb-3">Saved Items</h3>
-              <ul className="space-y-2">
-                {savedItems.map((item: any) => (
-                  <li key={item.id} className="p-2 bg-gray-50 rounded hover:bg-gray-100">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium text-gray-500">{item.type}</span>
-                      <div className="flex space-x-1">
-                        <button
-                          onClick={async () => {
-                            if (confirm('Edit item?')) {
-                              const newTitle = prompt('New title:', item.title);
-                              const newContent = prompt('New content:', item.content);
-                              if (newTitle && newContent) {
-                                try {
-                                  await api.put(`/chat/saved_items/${item.id}`, { title: newTitle, content: newContent });
-                                  const savedRes = await api.get('/chat/saved_items');
-                                  setSavedItems(savedRes.data);
-                                } catch (error) {
-                                  alert('Edit failed');
-                                }
-                              }
-                            }
-                          }}
-                          className="text-green-500 hover:text-green-700 text-xs"
-                          title="Edit"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={async () => {
-                            if (confirm('Delete item?')) {
-                              try {
-                                await api.delete(`/chat/saved_items/${item.id}`);
-                                const savedRes = await api.get('/chat/saved_items');
-                                setSavedItems(savedRes.data);
-                              } catch (error) {
-                                alert('Delete failed');
-                              }
-                            }
-                          }}
-                          className="text-red-500 hover:text-red-700 text-xs"
-                          title="Delete"
-                        >
-                          Delete
-                        </button>
-                        {item.type === 'document' && (
-                          <button
-                            onClick={async () => {
-                              // Unsave: delete from saved items
-                              try {
-                                await api.delete(`/chat/saved_items/${item.id}`);
-                                const savedRes = await api.get('/chat/saved_items');
-                                setSavedItems(savedRes.data);
-                              } catch (error) {
-                                alert('Unsave failed');
-                              }
-                            }}
-                            className="text-gray-500 hover:text-gray-700 text-xs"
-                            title="Unsave"
-                          >
-                            Unsave
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-sm font-medium">{item.title}</p>
-                    <p className="text-xs text-gray-600 truncate">{item.content}</p>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
 
-export default Sidebar;
+        <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Main navigation">
+          {SECTIONS.map((section) => (
+            <div key={section.id} className="mb-5">
+              <div className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-subtle">{section.label}</div>
+              <ul className="space-y-0.5">
+                {NAV_ITEMS.filter((n) => n.section === section.id).map((item) => {
+                  const active = isNavActive(item, pathname);
+                  return (
+                    <li key={item.to}>
+                      <Link
+                        to={item.to}
+                        aria-current={active ? 'page' : undefined}
+                        className={cx(
+                          'group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors',
+                          active ? 'bg-elevated font-medium text-fg' : 'text-muted hover:bg-elevated/70 hover:text-fg',
+                        )}
+                      >
+                        <Icon
+                          name={item.icon}
+                          className={cx('h-4 w-4', active ? 'text-accent' : 'text-subtle group-hover:text-muted')}
+                        />
+                        <span className="truncate">{item.label}</span>
+                        {active ? <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" /> : null}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+
+        <div className="border-t border-line p-3">
+          <Link to="/upload" className={buttonClass('primary', 'sm', 'w-full')}>
+            <Icon name="upload" className="h-4 w-4" />
+            Upload documents
+          </Link>
+          <p className="mt-3 px-1 text-[11px] leading-relaxed text-subtle">
+            Glass-box AI: every answer ships with sources, an evidence score and a reasoning trace.
+          </p>
+        </div>
+      </aside>
+    </>
+  );
+}

@@ -1,0 +1,6 @@
+# Optional ML extras (needs ~2 GB RAM). Install after requirements.txt:
+#   pip install -r requirements.txt -r requirements-ml.txt
+# For CPU-only wheels first run (install both together; a mismatched torchvision breaks transformers):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+sentence-transformers>=2.7   # MiniLM embeddings + cross-encoder reranker
+easyocr>=1.7                 # deep-learning OCR fallback (slow on CPU; replaced in backlog Phase 3)

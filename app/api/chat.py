@@ -1,88 +1,157 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from app.database.models import get_db, ChatSession, ChatMessage, SavedItem
-from app.services.rag_service import load_vector_store, query_rag
-from app.services.advanced_retriever import AdvancedRetriever
-from app.api.documents import get_current_user
-from pydantic import BaseModel
-from typing import Optional
+import json
 import logging
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.ai import rag
+from app.api.deps import enforce_rate, get_current_user
+from app.core.security import query_limiter
+from app.database.models import ChatMessage, ChatSession, SavedItem, SessionLocal, get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
 
 class QueryRequest(BaseModel):
     query: str
     session_id: Optional[int] = None
     document_id: Optional[int] = None
+    document_ids: Optional[list[int]] = None
+    mode: str = "fast"
+
+
+def _doc_ids(req: QueryRequest) -> list[int]:
+    ids = list(req.document_ids or [])
+    if req.document_id:
+        ids.append(req.document_id)
+    return list(dict.fromkeys(ids))
+
+
+def _session(db: Session, user, req: QueryRequest) -> ChatSession:
+    if req.session_id:
+        s = db.query(ChatSession).filter(ChatSession.id == req.session_id, ChatSession.user_id == user.id).first()
+        if not s:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return s
+    s = ChatSession(user_id=user.id, title=req.query.strip()[:60])
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+def _history(db: Session, session_id: int) -> list[dict]:
+    msgs = (db.query(ChatMessage).filter(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.id.desc()).limit(8).all())
+    return [{"role": m.role, "content": m.content} for m in reversed(msgs)]
+
+
+def _persist(db: Session, session_id: int, query: str, final: dict):
+    db.add(ChatMessage(session_id=session_id, role="user", content=query))
+    db.add(ChatMessage(session_id=session_id, role="assistant", content=final.get("answer", ""),
+                       meta_json=rag.meta_from_final(final)))
+    db.commit()
+
+
+def _validate(req: QueryRequest):
+    if not req.query or not req.query.strip():
+        raise HTTPException(status_code=400, detail="Query is empty")
+    if len(req.query) > 8000:
+        raise HTTPException(status_code=400, detail="Query too long (max 8000 chars)")
+    if req.mode not in ("fast", "deep"):
+        req.mode = "fast"
+
 
 @router.post("/query")
-def query_documents(request: QueryRequest, db: Session = Depends(get_db), user = Depends(get_current_user)):
-    try:
-        tenant_id = user.tenant_id
-        
-        # LOGGING: Show what document context is being used
-        if request.document_id:
-            logger.info(f"[CHAT] Query with DOCUMENT context (doc_id={request.document_id}): {request.query[:50]}...")
-        else:
-            logger.info(f"[CHAT] Query with NO document (general knowledge): {request.query[:50]}...")
-        
-        # Use advanced retriever for FAISS + BM25 (and fallback to legacy simple store)
-        advanced_store = AdvancedRetriever(db=db, tenant_id=tenant_id, document_id=request.document_id)
-        advanced_store.build_indexes()
-        answer = query_rag(advanced_store, request.query, use_tools=True, db=db, tenant_id=tenant_id, document_id=request.document_id)
-        
-        if request.session_id:
-            session = db.query(ChatSession).filter(ChatSession.id == request.session_id, ChatSession.user_id == user.id).first()
-            if not session:
-                raise HTTPException(status_code=404, detail="Session not found")
-        else:
-            session = ChatSession(user_id=user.id, title=request.query[:50])
-            db.add(session)
-            db.commit()
-            db.refresh(session)
-        user_msg = ChatMessage(session_id=session.id, role="user", content=request.query)
-        db.add(user_msg)
-        assistant_msg = ChatMessage(session_id=session.id, role="assistant", content=answer)
-        db.add(assistant_msg)
-        db.commit()
-        return {"reply": answer, "session_id": session.id}
-    except Exception as e:
-        import traceback
-        logger.error(f"Chat query failed: {e}\n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Chat failed: {e}")
+def query_documents(req: QueryRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    enforce_rate(query_limiter, user)
+    _validate(req)
+    session = _session(db, user, req)
+    final = rag.answer(db, tenant_id=user.tenant_id, user_id=user.id, query=req.query, document_ids=_doc_ids(req),
+                       mode=req.mode, history=_history(db, session.id), session_id=session.id)
+    if final.get("type") == "error":
+        raise HTTPException(status_code=404, detail=final.get("detail"))
+    _persist(db, session.id, req.query, final)
+    final.pop("type", None)
+    final["session_id"] = session.id
+    return final
+
+
+def _sse(obj: dict) -> str:
+    return f"data: {json.dumps(obj, default=str)}\n\n"
+
+
+@router.post("/stream")
+def stream(req: QueryRequest, user=Depends(get_current_user)):
+    enforce_rate(query_limiter, user)
+    _validate(req)
+    tenant_id, user_id = user.tenant_id, user.id
+
+    def gen():
+        db = SessionLocal()  # own session: lives as long as the stream
+        try:
+            class _U:  # minimal user stand-in bound to this session
+                id = user_id
+            session = _session(db, _U, req)
+            yield _sse({"type": "session", "session_id": session.id})
+            for ev in rag.run(db, tenant_id=tenant_id, user_id=user_id, query=req.query,
+                              document_ids=_doc_ids(req), mode=req.mode, history=_history(db, session.id),
+                              session_id=session.id, stream=True):
+                if ev["type"] == "final":
+                    ev["session_id"] = session.id
+                    _persist(db, session.id, req.query, ev)
+                yield _sse(ev)
+        except HTTPException as e:
+            yield _sse({"type": "error", "detail": e.detail})
+        except Exception as e:
+            logger.exception("stream failed: %s", e)
+            yield _sse({"type": "error", "detail": f"Internal error: {type(e).__name__}"})
+        finally:
+            db.close()
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
 
 @router.get("/sessions")
-def get_sessions(db: Session = Depends(get_db), user = Depends(get_current_user)):
-    sessions = db.query(ChatSession).filter(ChatSession.user_id == user.id).all()
+def get_sessions(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    sessions = db.query(ChatSession).filter(ChatSession.user_id == user.id).order_by(ChatSession.id.desc()).all()
     return [{"id": s.id, "title": s.title, "created_at": s.created_at} for s in sessions]
 
+
 @router.get("/messages/{session_id}")
-def get_messages(session_id: int, db: Session = Depends(get_db), user = Depends(get_current_user)):
+def get_messages(session_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == user.id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    messages = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at).all()
-    return {"messages": [{"role": m.role, "content": m.content, "id": m.id, "created_at": m.created_at} for m in messages]}
+    out = []
+    for m in db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.id).all():
+        item = {"role": m.role, "content": m.content}
+        if m.meta_json:
+            try:
+                item["meta"] = json.loads(m.meta_json)
+            except ValueError:
+                pass
+        out.append(item)
+    return out
+
 
 @router.post("/save_response")
-def save_response(request: dict, db: Session = Depends(get_db), user = Depends(get_current_user)):
-    saved_item = SavedItem(user_id=user.id, item_type="response", title=request.get("title", "Saved Response"), content=request["content"])
-    db.add(saved_item)
+def save_response(request: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if not request.get("content"):
+        raise HTTPException(status_code=400, detail="content is required")
+    db.add(SavedItem(user_id=user.id, item_type="response", title=str(request.get("title", "Saved Response"))[:200],
+                     content=str(request["content"])))
     db.commit()
     return {"message": "Response saved"}
 
 
-from fastapi import File, UploadFile
-from app.api.documents import _process_document_upload
-
-
-@router.post("/upload")
-def chat_upload_document(file: UploadFile = File(...), db: Session = Depends(get_db), user = Depends(get_current_user)):
-    return _process_document_upload(file=file, db=db, user=user)
-
 @router.delete("/sessions/{session_id}")
-def delete_session(session_id: int, db: Session = Depends(get_db), user = Depends(get_current_user)):
+def delete_session(session_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == user.id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -91,23 +160,26 @@ def delete_session(session_id: int, db: Session = Depends(get_db), user = Depend
     db.commit()
     return {"message": "Session deleted"}
 
+
 @router.put("/sessions/{session_id}")
-def edit_session(session_id: int, title: str, db: Session = Depends(get_db), user = Depends(get_current_user)):
+def edit_session(session_id: int, title: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
     session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == user.id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    session.title = title
+    session.title = title[:200]
     db.commit()
-    db.refresh(session)
     return {"id": session.id, "title": session.title}
 
+
 @router.get("/saved_items")
-def get_saved_items(db: Session = Depends(get_db), user = Depends(get_current_user)):
-    items = db.query(SavedItem).filter(SavedItem.user_id == user.id).all()
-    return [{"id": i.id, "type": i.item_type, "title": i.title, "content": i.content, "created_at": i.created_at} for i in items]
+def get_saved_items(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    items = db.query(SavedItem).filter(SavedItem.user_id == user.id).order_by(SavedItem.id.desc()).all()
+    return [{"id": i.id, "type": i.item_type, "title": i.title, "content": i.content, "created_at": i.created_at}
+            for i in items]
+
 
 @router.delete("/saved_items/{item_id}")
-def delete_saved_item(item_id: int, db: Session = Depends(get_db), user = Depends(get_current_user)):
+def delete_saved_item(item_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     item = db.query(SavedItem).filter(SavedItem.id == item_id, SavedItem.user_id == user.id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -115,13 +187,13 @@ def delete_saved_item(item_id: int, db: Session = Depends(get_db), user = Depend
     db.commit()
     return {"message": "Item deleted"}
 
+
 @router.put("/saved_items/{item_id}")
-def edit_saved_item(item_id: int, title: str, content: str, db: Session = Depends(get_db), user = Depends(get_current_user)):
+def edit_saved_item(item_id: int, title: str, content: str, db: Session = Depends(get_db),
+                    user=Depends(get_current_user)):
     item = db.query(SavedItem).filter(SavedItem.id == item_id, SavedItem.user_id == user.id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    item.title = title
-    item.content = content
+    item.title, item.content = title, content
     db.commit()
-    db.refresh(item)
     return {"id": item.id, "title": item.title, "content": item.content}

@@ -1,96 +1,245 @@
-import React, { useState } from 'react';
-import api from '../api';
-import { motion } from 'framer-motion';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { documentsApi, errorMessage } from '../api';
+import AnalysisSummary from '../components/AnalysisSummary';
+import DocumentTable from '../components/DocumentTable';
+import { Badge } from '../components/ui/Badge';
+import { Button } from '../components/ui/Button';
+import { Card, CardHeader } from '../components/ui/Card';
+import { Icon } from '../components/ui/Icon';
+import { IndeterminateBar, Meter } from '../components/ui/Meter';
+import { Page, PageHeader } from '../components/ui/PageHeader';
+import { useToast } from '../components/ui/Toast';
+import { useDocuments } from '../hooks/useDocuments';
+import { cx } from '../lib/cx';
+import { bytes, uid } from '../lib/format';
+import { useTitle } from '../lib/useTitle';
+import { ACCEPTED_EXTENSIONS, type UploadResponse } from '../types';
 
-const Upload: React.FC = () => {
-  const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState('');
+type Status = 'queued' | 'uploading' | 'processing' | 'done' | 'error';
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) return;
-    setLoading(true);
-    setError('');
-    setProgress(0);
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      await api.post('/documents/upload', formData, {
-        onUploadProgress: (p) => {
-          const total = p.total || 1;
-          setProgress(Math.round((p.loaded / total) * 100));
-        }
-      });
-      setProgress(100);
-      alert('Document uploaded successfully');
-      window.location.href = '/dashboard';
-    } catch (error: any) {
-      console.error('Upload error:', error.response?.data || error.message);
-      const msg = error.response?.data?.detail || error.message || 'Upload failed';
-      setError(msg);
-    } finally {
-      setLoading(false);
-      setProgress(0);
+interface QueueItem {
+  id: string;
+  file: File;
+  status: Status;
+  progress: number;
+  result?: UploadResponse;
+  error?: string;
+  open: boolean;
+}
+
+const ACCEPT = ACCEPTED_EXTENSIONS.join(',');
+const extOf = (name: string): string => {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i).toLowerCase() : '';
+};
+const isAccepted = (f: File) => (ACCEPTED_EXTENSIONS as readonly string[]).includes(extOf(f.name));
+
+const STATUS: Record<Status, { label: string; tone: 'neutral' | 'accent' | 'info' | 'success' | 'danger' }> = {
+  queued: { label: 'Queued', tone: 'neutral' },
+  uploading: { label: 'Uploading', tone: 'accent' },
+  processing: { label: 'Analyzing', tone: 'info' },
+  done: { label: 'Analyzed', tone: 'success' },
+  error: { label: 'Failed', tone: 'danger' },
+};
+
+export default function Upload() {
+  useTitle('Documents');
+  const toast = useToast();
+  const { documents, loading, error, reload, remove } = useDocuments();
+  const [items, setItems] = useState<QueueItem[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const busy = useRef(false);
+  const dragDepth = useRef(0);
+
+  const update = useCallback((id: string, patch: Partial<QueueItem>) => {
+    setItems((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  }, []);
+
+  const addFiles = (list: FileList | File[] | null) => {
+    if (!list) return;
+    const files = Array.from(list);
+    const ok = files.filter(isAccepted);
+    const rejected = files.filter((f) => !isAccepted(f));
+    if (rejected.length) {
+      toast.warning(
+        `${rejected.length} file${rejected.length > 1 ? 's' : ''} skipped`,
+        `Unsupported type: ${rejected.map((f) => f.name).slice(0, 3).join(', ')}${rejected.length > 3 ? '…' : ''}`,
+      );
+    }
+    if (ok.length) {
+      setItems((xs) => [...xs, ...ok.map((file) => ({ id: uid(), file, status: 'queued' as Status, progress: 0, open: true }))]);
     }
   };
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-bg1 via-bg3 to-bg4 relative overflow-hidden">
-      {loading && (
-        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
-          <div className="glass rounded-lg p-8 flex flex-col items-center shadow-xl border border-white/10">
-            <svg className="animate-spin h-8 w-8 text-primary mb-4" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-            </svg>
-            <span className="text-lg font-semibold text-primary">Processing document...</span>
-          </div>
-        </div>
-      )}
-      <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8 }} className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-primary/40 blur-3xl z-0" />
-      <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.2 }} className="absolute -bottom-32 -right-32 w-[500px] h-[500px] rounded-full bg-accent/40 blur-3xl z-0" />
-      <div className="relative z-10 w-full max-w-md glass border border-white/10 shadow-glow rounded-card p-10 flex flex-col items-center">
-        <div className="text-center mb-8">
-          <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-primary to-accent rounded-full flex items-center justify-center shadow-lg">
-              <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
-              </svg>
-            </div>
-          </div>
-          <h1 className="text-3xl font-bold gradient-text mb-2 flex items-center justify-center drop-shadow-2xl">
-            <svg className="w-8 h-8 mr-2" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
-            </svg>
-            Upload Document
-          </h1>
-          <p className="text-white/70">Upload a PDF, DOCX, or image file to get started</p>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-6 w-full">
-          <div className="group">
-            <label className="block text-white/80 font-semibold mb-3 flex items-center">Select PDF, DOCX, or Image File</label>
-            <input
-              type="file"
-              accept=".pdf,.docx,.png,.jpg,.jpeg,.tiff,.bmp"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-              className="w-full px-4 py-3 rounded-input bg-bg2 border border-white/10 focus:ring-2 focus:ring-primary focus:border-transparent transition duration-200 text-white placeholder-white/40 group-hover:scale-105 group-hover:shadow-glow"
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-pill bg-gradient-to-r from-primary via-accent to-green text-white font-bold py-3 shadow-glow text-lg transition-all hover:-translate-y-1 hover:scale-110 hover:shadow-2xl focus:outline-none disabled:opacity-60 flex items-center justify-center"
-          >
-            {loading ? 'Processing...' : 'Upload & Analyze'}
-          </button>
-        </form>
-        {error && <p className="text-red-500 mb-4">{error}</p>}
-      </div>
-    </div>
+  const runUpload = useCallback(
+    async (item: QueueItem) => {
+      busy.current = true;
+      update(item.id, { status: 'uploading', progress: 0, error: undefined });
+      try {
+        const res = await documentsApi.upload(item.file, (p) => {
+          update(item.id, p >= 100 ? { progress: 100, status: 'processing' } : { progress: p });
+        });
+        busy.current = false;
+        update(item.id, { status: 'done', progress: 100, result: res });
+        const flags = res.analysis?.security_flags ?? [];
+        if (flags.some((f) => f.type === 'prompt_injection')) {
+          toast.warning('Prompt injection detected', `${res.filename} contains instructions aimed at the AI.`);
+        } else {
+          toast.success('Document analyzed', res.filename);
+        }
+        void reload();
+      } catch (e) {
+        busy.current = false;
+        const msg = errorMessage(e, 'Upload failed');
+        update(item.id, { status: 'error', error: msg });
+        toast.error(`Upload failed: ${item.file.name}`, msg);
+      }
+    },
+    [reload, toast, update],
   );
-};
 
-export default Upload;
+  // Sequential queue: start the next queued file when nothing is in flight.
+  useEffect(() => {
+    if (busy.current) return;
+    if (items.some((i) => i.status === 'uploading' || i.status === 'processing')) return;
+    const next = items.find((i) => i.status === 'queued');
+    if (next) void runUpload(next);
+  }, [items, runUpload]);
+
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    addFiles(e.dataTransfer.files);
+  };
+
+  const pending = items.filter((i) => i.status === 'queued' || i.status === 'uploading' || i.status === 'processing').length;
+  const finished = items.filter((i) => i.status === 'done' || i.status === 'error').length;
+
+  return (
+    <Page>
+      <PageHeader
+        title="Documents"
+        description="Upload files to classify, summarize, OCR, scan for PII and prompt injection, extract entities and index for cited answers."
+      />
+
+      <div
+        onDragEnter={(e) => {
+          e.preventDefault();
+          dragDepth.current++;
+          setDragging(true);
+        }}
+        onDragOver={(e) => e.preventDefault()}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragging(false);
+        }}
+        onDrop={onDrop}
+        className={cx(
+          'relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-12 text-center transition-colors',
+          dragging ? 'border-accent bg-accent/[0.06]' : 'border-line-strong bg-surface hover:border-accent/60',
+        )}
+      >
+        <div className={cx('flex h-12 w-12 items-center justify-center rounded-xl border transition-colors', dragging ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-elevated text-muted')}>
+          <Icon name="upload" className="h-5 w-5" />
+        </div>
+        <p className="mt-4 text-sm font-medium text-fg">{dragging ? 'Drop to upload' : 'Drag & drop files here'}</p>
+        <p className="mt-1 text-xs text-muted">or</p>
+        <Button variant="primary" size="sm" className="mt-2" icon="plus" onClick={() => inputRef.current?.click()}>
+          Choose files
+        </Button>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept={ACCEPT}
+          className="sr-only"
+          aria-label="Choose files to upload"
+          onChange={(e) => {
+            addFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <p className="mt-4 max-w-lg text-[11px] text-subtle">
+          Accepted: {ACCEPTED_EXTENSIONS.map((x) => x.slice(1).toUpperCase()).join(' · ')}. Files are uploaded one at a time; scanned pages
+          and images go through the OpenCV + OCR pipeline.
+        </p>
+      </div>
+
+      {items.length > 0 ? (
+        <Card className="mt-6">
+          <CardHeader
+            icon="layers"
+            title="Upload queue"
+            description={pending ? `${pending} remaining · processed sequentially` : 'All files processed'}
+            actions={
+              finished > 0 ? (
+                <Button size="xs" variant="ghost" onClick={() => setItems((xs) => xs.filter((x) => x.status !== 'done' && x.status !== 'error'))}>
+                  Clear finished
+                </Button>
+              ) : null
+            }
+          />
+          <ul className="divide-y divide-line">
+            {items.map((it) => (
+              <li key={it.id} className="px-4 py-3 sm:px-5">
+                <div className="flex items-center gap-3">
+                  <Icon name={/\.(png|jpe?g|tiff|bmp|gif|webp)$/i.test(it.file.name) ? 'image' : 'file'} className="h-4 w-4 text-subtle" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-medium text-fg">{it.file.name}</span>
+                      <span className="text-xs text-subtle">{bytes(it.file.size)}</span>
+                      <Badge tone={STATUS[it.status].tone} dot>
+                        {STATUS[it.status].label}
+                        {it.status === 'uploading' ? ` ${it.progress}%` : ''}
+                      </Badge>
+                    </div>
+                    {it.status === 'uploading' ? <Meter value={it.progress} max={100} tone="accent" className="mt-2" label={`Uploading ${it.file.name}`} /> : null}
+                    {it.status === 'processing' ? (
+                      <div className="mt-2">
+                        <IndeterminateBar label={`Analyzing ${it.file.name}`} />
+                        <p className="mt-1 text-[11px] text-subtle">Extracting text · OCR · classification · entities · PII & injection scan · embeddings…</p>
+                      </div>
+                    ) : null}
+                    {it.status === 'error' ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{it.error}</p> : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {it.status === 'error' ? (
+                      <Button size="xs" icon="refresh" onClick={() => update(it.id, { status: 'queued', progress: 0, error: undefined })}>
+                        Retry
+                      </Button>
+                    ) : null}
+                    {it.status === 'done' ? (
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={it.open ? 'Collapse analysis' : 'Expand analysis'}
+                        aria-expanded={it.open}
+                        onClick={() => update(it.id, { open: !it.open })}
+                        icon="chevron-down"
+                        className={it.open ? 'rotate-180' : ''}
+                      />
+                    ) : null}
+                    {it.status === 'queued' || it.status === 'done' || it.status === 'error' ? (
+                      <Button size="icon-sm" variant="ghost" aria-label={`Remove ${it.file.name} from queue`} onClick={() => setItems((xs) => xs.filter((x) => x.id !== it.id))} icon="x" />
+                    ) : null}
+                  </div>
+                </div>
+                {it.status === 'done' && it.result && it.open ? (
+                  <div className="mt-3 rounded-xl border border-line bg-bg/40 p-4 animate-fade-in">
+                    <AnalysisSummary result={it.result} />
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
+      <div className="mt-6">
+        <DocumentTable title="Library" documents={documents} loading={loading} error={error} onDelete={(d) => void remove(d)} />
+      </div>
+    </Page>
+  );
+}
