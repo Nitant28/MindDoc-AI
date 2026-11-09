@@ -22,7 +22,7 @@ offline**, with no LLM at all.
 ## Quick start
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-ml.txt   # drop -ml for a slim install (offline embeddings, no reranker)
 cp .env.example .env          # set JWT_SECRET; add any LLM key (optional)
 python run_server.py          # API → http://127.0.0.1:8000/docs
 ```
@@ -46,10 +46,24 @@ flowchart LR
   V --> C[Confidence · abstain · audit log]
 ```
 
+## Current limitations (from the independent audit)
+
+Read `docs/audit/CURRENT_STATE_AUDIT.md` before demoing. In short: the claim verifier is similarity-based and does not
+catch wrong numbers, swapped parties or negation; confidence is an uncalibrated weighted score; PII is detected but not
+redacted; prompt-injection defence is pattern-based; ingestion is synchronous; PyMuPDF is AGPL-3.0; the deployed site
+runs an older line of code (`origin/main`). The fixes are planned in `docs/IMPLEMENTATION_BACKLOG.md`.
+
 ## Documentation
 
 | Doc | For |
 |---|---|
+| [docs/audit/CURRENT_STATE_AUDIT.md](docs/audit/CURRENT_STATE_AUDIT.md) | independent audit: what works, what doesn't, security, licences |
+| [docs/architecture/SYSTEM_ARCHITECTURE.md](docs/architecture/SYSTEM_ARCHITECTURE.md) | target architecture, layer by layer (proposal) |
+| [docs/architecture/](docs/architecture/) | data model, event catalog, investigation engine, evaluation framework, security model |
+| [docs/adr/](docs/adr/) | architecture decision records (proposed) |
+| [docs/strategy/](docs/strategy/) | market selection, competitive analysis, product differentiation |
+| [docs/IMPLEMENTATION_BACKLOG.md](docs/IMPLEMENTATION_BACKLOG.md) | prioritised build order with exit criteria |
+| [docs/research/](docs/research/) | industry landscape, technology evaluation, papers, research gaps, benchmark datasets |
 | [docs/MANUAL.md](docs/MANUAL.md) | install, configure providers, use every screen, troubleshooting |
 | [docs/CONCEPTS.md](docs/CONCEPTS.md) | every CV / ML / GenAI concept explained, with file pointers and interview lines |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | system design, data model, design decisions, security, scaling path |

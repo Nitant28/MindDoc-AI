@@ -109,7 +109,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             Upload documents
           </Link>
           <p className="mt-3 px-1 text-[11px] leading-relaxed text-subtle">
-            Glass-box AI: every answer ships with sources, confidence and a reasoning trace.
+            Glass-box AI: every answer ships with sources, an evidence score and a reasoning trace.
           </p>
         </div>
       </aside>

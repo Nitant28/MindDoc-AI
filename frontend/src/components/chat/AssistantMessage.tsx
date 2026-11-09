@@ -225,12 +225,13 @@ export default function AssistantMessage({ message, question, onRetry }: Assista
     else toast.error('Copy failed');
   };
 
-  // Groundedness badge
+  // Evidence-overlap badge. Honest label: the backend check is similarity-based and does not catch wrong numbers,
+  // swapped parties or negation (see docs/audit/CURRENT_STATE_AUDIT.md) — it is not a verification.
   let groundBadge: { tone: Tone; label: string } | null = null;
-  if (meta?.grounded === true) groundBadge = { tone: 'success', label: 'Grounded' };
+  if (meta?.grounded === true) groundBadge = { tone: 'success', label: 'High evidence overlap' };
   else if (meta?.grounded === false) {
     const r = g && g.total > 0 ? g.supported / g.total : 0;
-    groundBadge = { tone: r >= 0.5 ? 'warning' : 'danger', label: r > 0 ? 'Partially grounded' : 'Ungrounded' };
+    groundBadge = { tone: r >= 0.5 ? 'warning' : 'danger', label: r > 0 ? 'Partial evidence overlap' : 'Low evidence overlap' };
   }
   const groundRatio = g && g.total > 0 ? ` ${g.supported}/${g.total}` : '';
   const claimsExpanded = claimsOpen ?? (claims.some((c) => !c.supported) || (claims.length === 0 && unsupported.length > 0));
@@ -302,12 +303,18 @@ export default function AssistantMessage({ message, question, onRetry }: Assista
           <>
             {(isNum(meta.confidence) || groundBadge || meta.abstained) && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <ConfidenceBadge value={meta.confidence} />
+                <span title="Uncalibrated score combining retrieval strength and evidence overlap — not a probability of correctness.">
+                  <ConfidenceBadge value={meta.confidence} label="Evidence score" />
+                </span>
                 {groundBadge ? (
                   <Badge
                     tone={groundBadge.tone}
                     icon={groundBadge.tone === 'success' ? 'check' : 'alert'}
-                    title={unsupported.length ? `Unsupported: ${unsupported.join(' | ')}` : 'Every sentence is backed by a cited source'}
+                    title={
+                      unsupported.length
+                        ? `Low overlap: ${unsupported.join(' | ')}`
+                        : 'Each sentence overlaps with a cited passage (similarity check; it does not detect wrong numbers or negation)'
+                    }
                   >
                     {groundBadge.label}
                     {groundRatio}
@@ -324,9 +331,9 @@ export default function AssistantMessage({ message, question, onRetry }: Assista
 
             {claims.length > 0 || unsupported.length > 0 ? (
               <Section
-                title="Claim verification"
+                title="Claim overlap check (similarity-based)"
                 icon="check"
-                count={claims.length ? `${claims.filter((c) => c.supported).length}/${claims.length} supported` : `${unsupported.length} unsupported`}
+                count={claims.length ? `${claims.filter((c) => c.supported).length}/${claims.length} overlap` : `${unsupported.length} low overlap`}
                 open={claimsExpanded}
                 onToggle={() => setClaimsOpen(!claimsExpanded)}
               >

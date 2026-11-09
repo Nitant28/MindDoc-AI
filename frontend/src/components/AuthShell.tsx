@@ -6,7 +6,7 @@ import { Icon, type IconName } from './ui/Icon';
 
 const FEATURES: Array<{ icon: IconName; title: string; body: string }> = [
   { icon: 'quote', title: 'Cited, page-level answers', body: 'Every claim links back to the passage and page it came from.' },
-  { icon: 'target', title: 'Confidence & groundedness', body: 'Answers are scored and verified claim-by-claim against the sources.' },
+  { icon: 'target', title: 'Evidence scoring', body: 'Each answer sentence is checked for overlap with the passage it cites.' },
   { icon: 'trace', title: 'Inspectable reasoning', body: 'See retrieval, re-ranking and verification steps with timings.' },
 ];
 

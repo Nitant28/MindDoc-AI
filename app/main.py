@@ -72,11 +72,6 @@ app.include_router(intel.router, prefix="/api/intel", tags=["intelligence"])
 app.include_router(vision.router, prefix="/api/vision", tags=["vision"])
 
 
-@app.get("/api/test")
-def test():
-    return {"message": "API is working", "status": "healthy"}
-
-
 @app.get("/api/health")
 def health():
     return {"status": "healthy", "service": "MindDoc AI Backend", "version": VERSION}

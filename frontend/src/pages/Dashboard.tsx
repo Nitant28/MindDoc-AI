@@ -133,7 +133,7 @@ export default function Dashboard() {
     { label: 'Entities', value: num(o?.entities), icon: 'tag', hint: 'Ontology nodes' },
     { label: 'Relations', value: num(o?.relations), icon: 'graph', hint: 'Ontology edges' },
     { label: 'Queries', value: num(o?.queries), icon: 'chat', hint: 'Answered in this workspace' },
-    { label: 'Avg confidence', value: pct(o?.avg_confidence), icon: 'target', tone: scoreTone(o?.avg_confidence) },
+    { label: 'Avg evidence score', value: pct(o?.avg_confidence), icon: 'target', tone: scoreTone(o?.avg_confidence) },
     { label: 'Avg latency', value: fmtMs(o?.avg_latency_ms), icon: 'clock', hint: 'End-to-end answer time' },
     { label: 'PII found', value: num(piiTotal), icon: 'shield', tone: piiTotal > 0 ? 'warning' : 'neutral', hint: 'Emails, phones, IDs…' },
   ];
@@ -252,7 +252,7 @@ export default function Dashboard() {
           <CardHeader
             icon="activity"
             title="Recent queries"
-            description="Latest questions with their confidence and latency"
+            description="Latest questions with their evidence score and latency"
             actions={
               <Link to="/system" className="text-xs font-medium text-accent-soft hover:underline">
                 Audit trail →
@@ -276,7 +276,7 @@ export default function Dashboard() {
                       Query
                     </th>
                     <th scope="col" className="px-3 py-2.5 font-medium">
-                      Confidence
+                      Evidence score
                     </th>
                     <th scope="col" className="hidden px-3 py-2.5 text-right font-medium sm:table-cell">
                       Latency

@@ -298,10 +298,10 @@ export default function System() {
                     Latency
                   </th>
                   <th scope="col" className="px-3 py-2.5 font-medium">
-                    Confidence
+                    Evidence score
                   </th>
                   <th scope="col" className="px-3 py-2.5 font-medium">
-                    Grounded
+                    Overlap
                   </th>
                   <th scope="col" className="px-3 py-2.5 text-right font-medium">
                     Citations

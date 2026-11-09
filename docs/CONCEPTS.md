@@ -162,6 +162,10 @@ plan → retrieve (hybrid, multi-query, HyDE) → graph expand → rerank → MM
 - Split the answer into claims → for each claim, compare with the sources it cites using embedding similarity and
   lexical overlap → `supported / total`. In deep mode an **LLM-as-judge** gives a second faithfulness score.
 - Unsupported sentences are returned to the UI and highlighted. **Code:** `rag._verify`.
+- **Known weakness (audit, 2026-11-10):** similarity and word overlap cannot see that "$96,000" contradicts "$48,000",
+  that payer and payee were swapped, or that a sentence was negated — all such planted errors were marked "supported".
+  Real verification needs entity/number consistency checks, an NLI model and recomputation (backlog Phase 5). Know this
+  limitation before you present the feature.
 
 - Each claim is returned with `supported`, `score` and its `sources`, so the UI can badge sentences green/red.
 - **Abstention:** if the model says the sources don't cover the question, or confidence is < 0.25, the answer is

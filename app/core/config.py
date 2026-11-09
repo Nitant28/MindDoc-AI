@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./minddoc.db"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
     max_upload_mb: int = 50
+    max_pdf_pages: int = 500
+    max_image_pixels: int = 40_000_000
+    max_docx_uncompressed_mb: int = 200
+    rate_upload_per_min: int = 30
+    rate_query_per_min: int = 60
+    rate_eval_per_min: int = 5
     storage_dir: str = "./data/uploads"  # originals, for pixel-level citations
 
     # --- Auth -----------------------------------------------------------------
@@ -22,13 +28,15 @@ class Settings(BaseSettings):
     jwt_expiration_hours: int = 24
 
     # --- LLM providers (first available in LLM_PROVIDER_ORDER wins) -----------
-    llm_provider_order: str = "anthropic,openai,gemini,deepseek,ollama"
+    llm_provider_order: str = "anthropic,openai,openrouter,gemini,deepseek,ollama"
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5-5"
     anthropic_fast_model: str = "claude-haiku-5-5"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = ""
+    openrouter_api_key: str = ""
+    openrouter_model: str = "openai/gpt-oss-120b:free"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     deepseek_api_key: str = ""

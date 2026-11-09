@@ -80,6 +80,13 @@ def _provider_config(name: str, fast: bool = False) -> Optional[dict]:
             return None
         base = (_env("openai_base_url") or "https://api.openai.com/v1").rstrip("/")
         return {"kind": "openai", "key": key, "model": _env("openai_model"), "url": f"{base}/chat/completions"}
+    if name == "openrouter":  # OpenAI-compatible router over many hosted models (used by the v1 deployment)
+        key = _env("openrouter_api_key")
+        if not key:
+            return None
+        return {"kind": "openai", "key": key, "model": _env("openrouter_model"),
+                "url": "https://openrouter.ai/api/v1/chat/completions",
+                "extra_headers": {"X-Title": "MindDoc AI"}}
     if name == "nvidia":
         key = os.getenv("NVIDIA_API_KEY", "")
         if not key:
@@ -177,7 +184,8 @@ def _build_request(cfg: dict, prompt: str, system: Optional[str], history, max_t
             body["response_format"] = {"type": "json_object"}
         if stream:
             body["stream"] = True
-        headers = {"Authorization": f"Bearer {cfg['key']}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {cfg['key']}", "Content-Type": "application/json",
+                   **cfg.get("extra_headers", {})}
         return cfg["url"], headers, body
 
     if kind == "gemini":
@@ -273,7 +281,7 @@ def _candidates(fast: bool, need_vision: bool = False):
             yield name, cfg
 
 
-KNOWN_PROVIDERS = ("anthropic", "openai", "gemini", "nvidia", "deepseek", "ollama")
+KNOWN_PROVIDERS = ("anthropic", "openai", "openrouter", "gemini", "nvidia", "deepseek", "ollama")
 
 
 def available_providers() -> list[dict]:

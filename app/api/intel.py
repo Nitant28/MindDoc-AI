@@ -8,7 +8,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.ai import knowledge, llm
-from app.api.deps import get_current_user
+from app.api.deps import enforce_rate, get_current_user
+from app.core.security import eval_limiter
 from app.core.config import settings
 from app.database.models import Document, Entity, QueryLog, Relation, get_db
 from app.ml import embeddings as emb
@@ -95,6 +96,7 @@ class EvalRequest(BaseModel):
 
 @router.post("/eval")
 def run_eval(request: Optional[EvalRequest] = None, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    enforce_rate(eval_limiter, user)
     request = request or EvalRequest()
     return evaluation.evaluate(db, user.tenant_id, max(3, min(request.sample_size, 100)), request.use_llm)
 

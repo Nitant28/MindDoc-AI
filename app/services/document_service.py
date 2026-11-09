@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import io
 import logging
+import zipfile
 from dataclasses import dataclass, field
-from typing import Optional
 
 from PIL import Image as PILImage
-from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.vision import cv
 
 logger = logging.getLogger(__name__)
@@ -84,11 +84,17 @@ def _table_to_md(rows: list[list]) -> str:
     return "\n".join(out)
 
 
+def _check_pages(n: int) -> None:
+    if n > settings.max_pdf_pages:
+        raise ValueError(f"PDF has {n} pages; the limit is {settings.max_pdf_pages}. Split the file and upload the parts.")
+
+
 def parse_pdf(data: bytes) -> ParsedDocument:
     pages: list[Page] = []
     if FITZ_AVAILABLE:
         doc = fitz.open(stream=data, filetype="pdf")
         try:
+            _check_pages(len(doc))
             for i, page in enumerate(doc, start=1):
                 text = page.get_text("text") or ""
                 n_images = len(page.get_images(full=True))
@@ -107,7 +113,9 @@ def parse_pdf(data: bytes) -> ParsedDocument:
                               "quality_score": 1.0, "skew_angle": 0.0, "tables_detected": len(tables_md),
                               "figures_detected": n_images}
                 else:  # scanned / image-only page → computer vision OCR
-                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                    area = max(1.0, page.rect.width * page.rect.height)  # cap render size for huge page boxes
+                    zoom = min(2.0, (settings.max_image_pixels / area) ** 0.5)
+                    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
                     img = PILImage.open(io.BytesIO(pix.tobytes("png")))
                     ocr_text, report = cv.ocr_page_image(img)
                     report["tables_detected"] = max(report["tables_detected"], len(tables_md))
@@ -117,6 +125,7 @@ def parse_pdf(data: bytes) -> ParsedDocument:
             doc.close()
     elif PDFPLUMBER_AVAILABLE:
         with pdfplumber.open(io.BytesIO(data)) as pdf:
+            _check_pages(len(pdf.pages))
             for i, page in enumerate(pdf.pages, start=1):
                 text = page.extract_text() or ""
                 if len(text.strip()) < MIN_TEXT_CHARS:
@@ -132,6 +141,16 @@ def parse_pdf(data: bytes) -> ParsedDocument:
 def parse_docx(data: bytes) -> ParsedDocument:
     if not DOCX_AVAILABLE:
         raise RuntimeError("python-docx is not installed")
+    # A .docx is a zip: refuse zip bombs before python-docx inflates it.
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            infos = z.infolist()
+    except zipfile.BadZipFile:
+        raise ValueError("Not a valid .docx file")
+    total = sum(i.file_size for i in infos)
+    if len(infos) > 5000 or total > settings.max_docx_uncompressed_mb * 1024 * 1024:
+        raise ValueError(f"DOCX expands to {total // (1024 * 1024)} MB in {len(infos)} parts; "
+                         f"the limit is {settings.max_docx_uncompressed_mb} MB")
     d = DocxDocument(io.BytesIO(data))
     parts = []
     for para in d.paragraphs:
@@ -153,7 +172,9 @@ def parse_docx(data: bytes) -> ParsedDocument:
 
 
 def parse_image(data: bytes) -> ParsedDocument:
-    img = PILImage.open(io.BytesIO(data))
+    img = PILImage.open(io.BytesIO(data))  # lazy: reads the header only, so the size check runs before decoding
+    if img.width * img.height > settings.max_image_pixels:
+        raise ValueError(f"Image is {img.width}×{img.height} px; the limit is {settings.max_image_pixels:,} pixels")
     try:
         img.seek(0)  # first frame of animated GIF / multi-page TIFF
     except Exception:
@@ -188,20 +209,3 @@ def parse_document(data: bytes, filename: str) -> ParsedDocument:
     if name.endswith(TEXT_EXT):
         return parse_text(data)
     raise ValueError(f"Unsupported file type: {filename}")
-
-
-# ------------------------------------------------------------------------- v1 compatibility
-
-def extract_text_from_file(file_obj, filename: str) -> str:
-    try:
-        file_obj.seek(0)
-    except Exception:
-        pass
-    return parse_document(file_obj.read(), filename).text
-
-
-def save_document(db: Session, filename: str, content: str, tenant_id: int, owner_id: Optional[int] = None):
-    """Index plain text as a document (kept for scripts written against v1)."""
-    from app.services.ingestion import ingest_parsed
-    parsed = ParsedDocument([Page(1, content, {"method": "text", "quality": "good", "quality_score": 1.0})], "text")
-    return ingest_parsed(db, parsed, filename, tenant_id, owner_id)

@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.ai import rag
-from app.api.deps import get_current_user
+from app.api.deps import enforce_rate, get_current_user
+from app.core.security import query_limiter
 from app.database.models import ChatMessage, ChatSession, SavedItem, SessionLocal, get_db
 
 router = APIRouter()
@@ -67,6 +68,7 @@ def _validate(req: QueryRequest):
 
 @router.post("/query")
 def query_documents(req: QueryRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    enforce_rate(query_limiter, user)
     _validate(req)
     session = _session(db, user, req)
     final = rag.answer(db, tenant_id=user.tenant_id, user_id=user.id, query=req.query, document_ids=_doc_ids(req),
@@ -85,6 +87,7 @@ def _sse(obj: dict) -> str:
 
 @router.post("/stream")
 def stream(req: QueryRequest, user=Depends(get_current_user)):
+    enforce_rate(query_limiter, user)
     _validate(req)
     tenant_id, user_id = user.tenant_id, user.id
 

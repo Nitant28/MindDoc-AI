@@ -1,5 +1,9 @@
 # MindDoc AI — Product Strategy & Roadmap
 
+> **Superseded (2026-11-10)** by the Stage A–E deliverables: market choice in `docs/adr/0008-primary-market-lender-forensics.md`
+> (lender forensic review, not KYC), plan in `docs/IMPLEMENTATION_BACKLOG.md`, architecture in
+> `docs/architecture/SYSTEM_ARCHITECTURE.md`. Kept for history.
+
 *Grounded in `docs/research/HACKATHON_WINNERS_RESEARCH.md` (Microsoft Imagine Cup, Google Solution Challenge / Gemini /
 Kaggle, NVIDIA developer contests, Palantir AIP/Foundry/Ontology docs).*
 

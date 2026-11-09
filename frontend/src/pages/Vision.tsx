@@ -273,7 +273,7 @@ export default function Vision() {
                 <CardHeader
                   icon="target"
                   title="Image quality"
-                  description="Measured before OCR; poor scans lower answer confidence"
+                  description="Measured before OCR; poor scans produce less reliable text"
                   actions={q?.quality ? <Badge tone={qualityTone(q.quality)}>{q.quality}</Badge> : null}
                 />
                 <CardBody className="grid grid-cols-2 gap-4 sm:grid-cols-5">

@@ -6,7 +6,7 @@
 
 ```bash
 # backend
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-ml.txt   # ML extras: MiniLM embeddings, reranker, EasyOCR
 cp .env.example .env            # then set JWT_SECRET and at least one LLM key (optional)
 python run_server.py            # http://127.0.0.1:8000  (API docs at /docs)
 
@@ -20,7 +20,12 @@ npm run dev                     # http://127.0.0.1:5173
 port 8000.
 
 **Docker:** `docker build -t minddoc . && docker run -p 8000:8000 -v minddoc-data:/data --env-file .env minddoc`
-(the image includes Tesseract and pre-downloaded embedding + reranker models, so it runs offline).
+builds the slim image (Tesseract, offline hashing embeddings; fits 512 MB hosts). Add
+`--build-arg INSTALL_ML=true` for MiniLM embeddings + the reranker, pre-downloaded so the container runs offline
+(needs ~2 GB RAM). The database and uploaded originals live in `/data` — mount a volume there.
+
+**Render:** `render.yaml` deploys the Docker image, generates `JWT_SECRET` automatically and reads
+`OPENROUTER_API_KEY` from the dashboard. On the free plan `/data` resets on each deploy; see the comment in the file.
 
 **Tests:** `python -m pytest tests -q` (runs fully offline in an isolated temp database).
 
@@ -57,8 +62,10 @@ Summary, type + confidence, reading stats, weighted keywords, extracted entities
 - **Scope:** whole workspace, or one/several documents.
 - **Fast mode:** single hybrid retrieval pass, lowest latency. **Deep mode:** query planning, sub-questions, HyDE,
   LLM fact-check — use for complex or multi-part questions.
-- Every answer shows **citations** (click `[n]` to jump to the source snippet with file and page), a **confidence**
-  score, a **grounded / not grounded** badge with any unsupported sentences, and the full **reasoning trace**.
+- Every answer shows **citations** (click `[n]` to jump to the source snippet with file and page), an **evidence
+  score** (uncalibrated — not a probability), an **evidence-overlap** badge listing low-overlap sentences, and the full
+  **reasoning trace**. The overlap check is similarity-based: it does **not** catch wrong numbers, swapped parties or
+  negation, so always open the cited source for consequential facts.
 - Follow-up questions keep context ("what about its renewal terms?").
 - Ask "summarise this document" to get coverage-based summaries instead of similarity search.
 

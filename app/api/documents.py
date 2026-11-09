@@ -8,8 +8,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.ai.extraction import extract_fields
-from app.api.deps import get_current_user  # noqa: F401  (re-exported for v1 imports)
+from app.api.deps import enforce_rate, get_current_user
 from app.core.config import settings
+from app.core.security import query_limiter, upload_limiter
 from app.database.models import Document, DocumentChunk, SavedItem, get_db
 from app.services import ingestion
 from app.services.document_service import ALLOWED_EXT
@@ -28,6 +29,7 @@ def _own_doc(db: Session, doc_id: int, user) -> Document:
 
 @router.post("/upload")
 def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    enforce_rate(upload_limiter, user)
     filename = file.filename or "uploaded"
     if not filename.lower().endswith(ALLOWED_EXT):
         raise HTTPException(status_code=400,
@@ -97,6 +99,7 @@ class ExtractRequest(BaseModel):
 
 @router.post("/{doc_id}/extract")
 def extract(doc_id: int, request: ExtractRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    enforce_rate(query_limiter, user)
     doc = _own_doc(db, doc_id, user)
     if not request.fields or len(request.fields) > 30:
         raise HTTPException(status_code=400, detail="Provide 1-30 fields")
