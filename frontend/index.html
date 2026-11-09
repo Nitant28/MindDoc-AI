@@ -1,10 +1,36 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#09090b" />
+    <meta
+      name="description"
+      content="MindDoc AI: glass-box document intelligence with cited answers, confidence, groundedness checks and reasoning traces."
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M10.5 21.5 16 11.5l5.5 8.5' fill='none' stroke='white' stroke-opacity='.6' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='10.5' cy='21.5' r='2.5' fill='white'/%3E%3Ccircle cx='16' cy='11.5' r='2.5' fill='white'/%3E%3Ccircle cx='21.5' cy='20' r='2.5' fill='white'/%3E%3C/svg%3E"
+    />
     <title>MindDoc AI</title>
+    <script>
+      (function () {
+        var root = document.documentElement;
+        try {
+          if (window.localStorage.getItem('theme') === 'light') {
+            root.classList.remove('dark');
+            root.style.colorScheme = 'light';
+            return;
+          }
+        } catch (e) {
+          /* storage unavailable: fall back to dark */
+        }
+        root.classList.add('dark');
+        root.style.colorScheme = 'dark';
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

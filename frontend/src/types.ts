@@ -1,0 +1,438 @@
+/**
+ * Types for the MindDoc AI v2 API contract (docs/API_CONTRACT.md).
+ * Everything added in v2 is optional/nullable: documents uploaded before v2 have no analysis fields.
+ */
+
+// ───────────────────────────── Auth ─────────────────────────────
+
+export interface Credentials {
+  email: string;
+  password: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+}
+
+export interface UpdateEmailBody {
+  new_email: string;
+  password: string;
+}
+
+export interface MessageResponse {
+  message: string;
+}
+
+export interface Me {
+  id: number;
+  email: string;
+  workspace?: string | number | null;
+}
+
+// ─────────────────────────── Documents ──────────────────────────
+
+export const ACCEPTED_EXTENSIONS = [
+  '.pdf',
+  '.docx',
+  '.txt',
+  '.md',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.tiff',
+  '.bmp',
+  '.gif',
+  '.webp',
+] as const;
+
+export type EntityType =
+  | 'PERSON'
+  | 'ORG'
+  | 'LOCATION'
+  | 'DATE'
+  | 'MONEY'
+  | 'EMAIL'
+  | 'URL'
+  | 'PRODUCT'
+  | 'LAW'
+  | 'CONCEPT'
+  | 'OTHER';
+
+export interface Keyword {
+  term: string;
+  score: number;
+}
+
+export interface Entity {
+  name: string;
+  type: EntityType | string;
+  count: number;
+}
+
+export interface PiiSummary {
+  count: number;
+  types: Record<string, number>;
+}
+
+export type Severity = 'low' | 'medium' | 'high' | 'critical';
+
+export interface SecurityFlag {
+  type: 'prompt_injection' | string;
+  severity: Severity | string;
+  snippet?: string | null;
+}
+
+export type QualityLabel = 'good' | 'fair' | 'poor';
+
+export interface VisionPage {
+  page: number;
+  method?: 'text' | 'ocr' | string | null;
+  ocr_confidence?: number | null;
+  blur_score?: number | null;
+  quality?: QualityLabel | string | null;
+  skew_angle?: number | null;
+  tables_detected?: number | null;
+  figures_detected?: number | null;
+}
+
+export interface DocumentVision {
+  overall_quality?: number | null;
+  ocr_pages?: number | null;
+  pages?: VisionPage[] | null;
+}
+
+export interface DocumentStats {
+  characters?: number | null;
+  words?: number | null;
+  chunks?: number | null;
+  pages?: number | null;
+  reading_time_min?: number | null;
+  readability?: number | null;
+}
+
+/** Item of `GET /documents/list`. */
+export interface DocumentSummary {
+  id: number;
+  filename: string;
+  created_at?: string | null;
+  doc_type?: string | null;
+  summary?: string | null;
+  pages?: number | null;
+  chunk_count?: number | null;
+  quality_score?: number | null;
+  pii_count?: number | null;
+}
+
+/** `GET /documents/{id}` and `analysis` of the upload response. */
+export interface DocumentDetail {
+  id: number;
+  filename: string;
+  created_at?: string | null;
+  doc_type?: string | null;
+  doc_type_confidence?: number | null;
+  summary?: string | null;
+  keywords?: Keyword[] | null;
+  entities?: Entity[] | null;
+  pii?: PiiSummary | null;
+  security_flags?: SecurityFlag[] | null;
+  vision?: DocumentVision | null;
+  stats?: DocumentStats | null;
+  preview?: string | null;
+}
+
+export interface UploadResponse {
+  message: string;
+  document_id: number;
+  filename: string;
+  characters_extracted?: number | null;
+  preview?: string | null;
+  analysis?: DocumentDetail | null;
+}
+
+export type ExtractionFields = Record<string, string>;
+
+export interface ExtractRequest {
+  fields: ExtractionFields;
+}
+
+export interface ExtractResponse {
+  data: Record<string, unknown>;
+  provider?: string | null;
+  model?: string | null;
+}
+
+// ───────────────────────────── Chat ─────────────────────────────
+
+export type ChatMode = 'fast' | 'deep';
+
+export interface ChatQueryBody {
+  query: string;
+  session_id?: number | null;
+  document_id?: number | null;
+  document_ids?: number[] | null;
+  mode?: ChatMode;
+}
+
+export interface Citation {
+  index: number;
+  document_id?: number | null;
+  filename?: string | null;
+  page?: number | null;
+  chunk_id?: number | null;
+  snippet?: string | null;
+  score?: number | null;
+}
+
+export interface ClaimCheck {
+  text: string;
+  supported: boolean;
+  score?: number | null;
+  sources?: number[] | null;
+}
+
+export interface Groundedness {
+  supported: number;
+  total: number;
+  unsupported: string[];
+  /** v2.1: claim-level verification. */
+  claims?: ClaimCheck[] | null;
+}
+
+export interface TraceStep {
+  step: string;
+  detail?: string | null;
+  ms?: number | null;
+}
+
+/** Normalized `POST /chat/query` response (missing v2 fields filled with null/[]). */
+export interface RagAnswer {
+  answer: string;
+  session_id: number | null;
+  citations: Citation[];
+  confidence: number | null;
+  grounded: boolean | null;
+  groundedness: Groundedness | null;
+  sub_queries: string[];
+  trace: TraceStep[];
+  provider: string | null;
+  model: string | null;
+  latency_ms: number | null;
+  /** v2.1: the model declined because the evidence was insufficient. */
+  abstained: boolean | null;
+  /** v2.1: provenance hash of the exact prompt sent to the model. */
+  prompt_hash: string | null;
+}
+
+/** `meta` on stored assistant messages; same fields as RagAnswer, all optional. */
+export type AnswerMeta = Partial<Omit<RagAnswer, 'answer' | 'session_id'>>;
+
+export type StreamTraceEvent = { type: 'trace' } & TraceStep;
+export interface StreamTokenEvent {
+  type: 'token';
+  text: string;
+}
+export type StreamFinalEvent = { type: 'final' } & RagAnswer;
+export interface StreamErrorEvent {
+  type: 'error';
+  detail: string;
+}
+/** Client-side event: the SSE stream failed and we are retrying with POST /chat/query. */
+export interface StreamFallbackEvent {
+  type: 'fallback';
+  reason: string;
+}
+export type StreamEvent =
+  | StreamTraceEvent
+  | StreamTokenEvent
+  | StreamFinalEvent
+  | StreamErrorEvent
+  | StreamFallbackEvent;
+
+export interface ChatSession {
+  id: number;
+  title: string;
+  created_at?: string | null;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | string;
+  content: string;
+  meta?: AnswerMeta | null;
+}
+
+export interface SaveResponseBody {
+  title: string;
+  content: string;
+}
+
+export interface SavedItem {
+  id: number;
+  type?: string | null;
+  title: string;
+  content: string;
+  created_at?: string | null;
+}
+
+// ───────────────────────── Intelligence ─────────────────────────
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  type: EntityType | string;
+  weight: number;
+  documents: number[];
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  relation: string;
+  weight: number;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface GraphQuery {
+  document_id?: number | null;
+  limit?: number;
+}
+
+export interface Topic {
+  id: number;
+  label: string;
+  keywords: string[];
+  document_ids: number[];
+}
+
+export interface RecentQuery {
+  query: string;
+  confidence?: number | null;
+  latency_ms?: number | null;
+  provider?: string | null;
+  created_at?: string | null;
+}
+
+export interface Overview {
+  documents?: number | null;
+  chunks?: number | null;
+  entities?: number | null;
+  relations?: number | null;
+  queries?: number | null;
+  avg_latency_ms?: number | null;
+  avg_confidence?: number | null;
+  pii_total?: number | null;
+  doc_types?: Record<string, number> | null;
+  topics?: Topic[] | null;
+  recent_queries?: RecentQuery[] | null;
+}
+
+export interface TimelineItem {
+  date: string;
+  text?: string | null;
+  document_id?: number | null;
+  filename?: string | null;
+  page?: number | null;
+  snippet?: string | null;
+  upcoming?: boolean | null;
+  days_from_now?: number | null;
+}
+
+export interface TimelineQuery {
+  document_id?: number | null;
+  upcoming_days?: number | null;
+}
+
+export interface AuditEntry {
+  id: number;
+  created_at?: string | null;
+  query: string;
+  mode?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  latency_ms?: number | null;
+  confidence?: number | null;
+  grounded?: boolean | null;
+  n_citations?: number | null;
+  prompt_hash?: string | null;
+  chunk_ids?: number[] | null;
+}
+
+export interface PageImage {
+  url: string;
+  /** Value of `X-Highlight-Boxes` (0 = page shown without highlight). */
+  highlights: number | null;
+}
+
+export interface EvalRequest {
+  sample_size?: number;
+}
+
+export interface EvalResult {
+  n: number;
+  hit_rate_at_5: number;
+  mrr: number;
+  dense_only_hit_rate?: number | null;
+  bm25_only_hit_rate?: number | null;
+  ms?: number | null;
+}
+
+export interface LlmProvider {
+  name: string;
+  available: boolean;
+  model?: string | null;
+}
+
+export interface Capabilities {
+  llm_providers?: LlmProvider[] | null;
+  embeddings?: string | null;
+  reranker?: boolean | string | null;
+  opencv?: boolean | null;
+  ocr_engines?: string[] | null;
+  vision_llm?: boolean | string | null;
+}
+
+// ─────────────────────────── Vision Lab ─────────────────────────
+
+export interface ImageQuality {
+  blur_score?: number | null;
+  brightness?: number | null;
+  contrast?: number | null;
+  quality?: QualityLabel | string | null;
+  score?: number | null;
+}
+
+export interface LayoutBlock {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  type: 'text' | 'table' | 'figure' | string;
+}
+
+export interface OcrResult {
+  engine?: string | null;
+  text?: string | null;
+  confidence?: number | null;
+  words?: number | null;
+}
+
+export interface VisionAnalysis {
+  width?: number | null;
+  height?: number | null;
+  quality?: ImageQuality | null;
+  skew_angle?: number | null;
+  blocks?: LayoutBlock[] | null;
+  ocr?: OcrResult | null;
+  caption?: string | null;
+  annotated_image?: string | null;
+}
+
+// ──────────────────────────── Errors ────────────────────────────
+
+export interface ApiErrorBody {
+  detail?: string | Array<{ msg?: string; loc?: Array<string | number> }>;
+}

@@ -1,49 +1,73 @@
 # MindDoc AI
 
-A cutting-edge full-stack RAG (Retrieval-Augmented Generation) application for document Q&A using advanced AI, powered by DeepSeek-V3 for intelligent, fast, and responsive conversations.
+**Glass-box document intelligence.** Upload contracts, scans, invoices, papers or photos of documents. MindDoc
+*sees* them (computer vision + OCR), *understands* them (ML analytics + a knowledge graph), and *answers* questions
+with evidence you can check: numbered citations highlighted on the original page, a per-claim support check,
+a calibrated confidence score, and a full reasoning trace.
 
-## Features
+It runs with Claude, OpenAI/Azure, Gemini, NVIDIA NIM, DeepSeek or a local Ollama model. It also runs **fully
+offline**, with no LLM at all.
 
-- **User Authentication**: Secure register/login with multi-tenant architecture
-- **Document Upload**: Support for PDF, DOCX, and image files (PNG, JPG, JPEG, TIFF, BMP) with OCR capabilities
-- **AI-Powered Chat**: Integrated with DeepSeek-V3.1:671b-cloud for superior reasoning and response quality
-- **RAG Technology**: Intelligent document processing with vector embeddings for context-aware answers
-- **Editable Sessions & Documents**: Full CRUD operations on chat sessions, documents, and saved items
-- **Saved Items**: Star documents and responses for quick access
-- **Beautiful UI**: Astonishing frontend with gradients, animations, and professional design
-- **Robust Backend**: Error-resistant server handling any PDF or query
-- **Settings Management**: Update user email and account settings
+---
 
-## Setup
+## What's inside
 
-1. Install Python 3.11+ and Node.js 18+.
+| | Capability | Techniques |
+|---|---|---|
+| 👁 **Computer Vision** | scanned-page OCR, quality gating, layout | variance-of-Laplacian blur score, NL-means denoise, CLAHE, deskew (minAreaRect), adaptive threshold, morphological text/table/figure detection, Tesseract + EasyOCR (CRAFT + CRNN) with confidence, vision-LLM captions, **pixel-level citation highlights** |
+| 📈 **Machine Learning** | search, analytics, evaluation | BM25, dense embeddings (MiniLM), Reciprocal Rank Fusion, cross-encoder reranking, MMR, zero-shot classification, KeyBERT-style keyphrases, K-Means + c-TF-IDF topics, extractive summaries, readability, self-supervised Hit@5/MRR with ablations |
+| ✨ **Generative AI** | grounded answers and extraction | agentic RAG (rewrite → decompose → HyDE → retrieve → GraphRAG → rerank → generate → verify), streamed cited answers, claim-level groundedness + LLM-as-judge, abstention, calibrated confidence, schema-driven JSON extraction, GraphRAG-style entity + relation extraction, multi-provider gateway with circuit breaker |
+| 🛡 **Responsible AI** | trust and safety | PII detection (Luhn-validated cards, SSN, IBAN, PAN/Aadhaar…), indirect prompt-injection detection + context sanitisation, per-user workspace isolation, audit trail with prompt hashes, rate-limited auth, PBKDF2-310k |
 
-2. Clone or extract the project.
+## Quick start
 
-3. Set environment variables:
-   - `OPENAI_API_KEY` (fallback)
-   - `DEEPSEEK_API_KEY` (primary AI model)
+```bash
+pip install -r requirements.txt
+cp .env.example .env          # set JWT_SECRET; add any LLM key (optional)
+python run_server.py          # API → http://127.0.0.1:8000/docs
+```
+```bash
+cd frontend && npm install && npm run dev     # UI → http://127.0.0.1:5173
+```
+Or run everything in one container: `docker build -t minddoc . && docker run -p 8000:8000 --env-file .env minddoc`
 
-4. For backend: `pip install -r requirements.txt`
+Tests (offline, isolated DB): `python -m pytest tests -q`
 
-5. For frontend: `cd frontend && npm install`
+## How an answer is made
 
-6. Run `start.bat` to launch both services.
+```mermaid
+flowchart LR
+  Q[Question] --> P[Plan: rewrite · sub-queries · HyDE]
+  P --> R[Hybrid retrieve: BM25 + dense → RRF]
+  R --> G[GraphRAG: entity-linked chunks]
+  G --> X[Cross-encoder rerank → MMR]
+  X --> L[LLM: cited, streamed answer]
+  L --> V[Verify each claim vs its sources]
+  V --> C[Confidence · abstain · audit log]
+```
 
-7. Open http://127.0.0.1:5173
+## Documentation
 
-## Usage
+| Doc | For |
+|---|---|
+| [docs/MANUAL.md](docs/MANUAL.md) | install, configure providers, use every screen, troubleshooting |
+| [docs/CONCEPTS.md](docs/CONCEPTS.md) | every CV / ML / GenAI concept explained, with file pointers and interview lines |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | system design, data model, design decisions, security, scaling path |
+| [docs/API_CONTRACT.md](docs/API_CONTRACT.md) | REST + SSE API reference |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | product strategy, vertical positioning, roadmap, 3-minute demo script |
+| [docs/research/HACKATHON_WINNERS_RESEARCH.md](docs/research/HACKATHON_WINNERS_RESEARCH.md) | Microsoft / Google / NVIDIA winners analysis and Palantir principles |
 
-- Register/Login to your account
-- Upload documents (PDFs, images, etc.) via Upload page or directly in Chat
-- Start chatting: Ask general questions or attach specific documents for context
-- Manage sessions: Edit titles, delete sessions
-- Save important documents and responses with star feature
-- Access settings to update email
+## Project layout
 
-## Architecture
-
-- **Backend**: FastAPI with SQLAlchemy, ChromaDB for vectors, DeepSeek API integration
-- **Frontend**: React with TypeScript, Tailwind CSS for stunning UI
-- **AI**: DeepSeek-V3 for chat, sentence-transformers for embeddings
-- **OCR**: Tesseract for image text extraction
+```
+app/
+  api/        auth · documents · chat (JSON + SSE) · intel (graph, timeline, audit, eval) · vision
+  ai/         llm gateway · rag pipeline · knowledge graph · extraction · guardrails
+  ml/         embeddings · hybrid retrieval · insights · evaluation
+  vision/     CV pipeline · page highlighter
+  services/   parsing · ingestion orchestration
+  database/   SQLAlchemy models + auto-migration
+frontend/     React + TypeScript + Tailwind
+tests/        unit + end-to-end API tests
+docs/         manuals, architecture, research, roadmap
+```

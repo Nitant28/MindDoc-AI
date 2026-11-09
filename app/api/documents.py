@@ -1,110 +1,130 @@
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 import logging
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
-from app.database.models import get_db, Document, DocumentChunk, User, SavedItem
-from app.services.document_service import extract_text_from_file, save_document as save_document_service
-from app.core.security import verify_token
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+from app.ai.extraction import extract_fields
+from app.api.deps import get_current_user  # noqa: F401  (re-exported for v1 imports)
+from app.core.config import settings
+from app.database.models import Document, DocumentChunk, SavedItem, get_db
+from app.services import ingestion
+from app.services.document_service import ALLOWED_EXT
+from app.vision import highlight
 
 router = APIRouter()
-
 logger = logging.getLogger(__name__)
 
-security = HTTPBearer()
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
-    token = credentials.credentials
-    payload = verify_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user_id = int(payload["sub"])
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
-
-@router.post("/upload")
-def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db), user = Depends(get_current_user)):
-    # Accept PDFs, DOCX, common images, and text files (.txt)
-    allowed = ('.pdf', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.txt', '.gif')
-    filename = (file.filename or '').lower()
-    
-    # Validate file extension
-    if not filename or not any(filename.endswith(ext) for ext in allowed):
-        raise HTTPException(status_code=400, detail=f"Only PDF, DOCX, image files (.pdf, .docx, .png, .jpg, .jpeg, .tiff, .bmp, .gif), and .txt allowed. Got: {filename}")
-
-    try:
-        # If it's a .txt file, read text directly
-        if filename.endswith('.txt'):
-            try:
-                file.file.seek(0)
-            except Exception:
-                pass
-            raw = file.file.read()
-            if isinstance(raw, bytes):
-                try:
-                    content = raw.decode('utf-8')
-                except Exception:
-                    content = raw.decode('latin-1', errors='ignore')
-            else:
-                content = str(raw)
-        else:
-            content = extract_text_from_file(file.file, file.filename)
-    except Exception as e:
-        logger.exception("OCR/text extraction failed for %s: %s", file.filename, e)
-        content = ""
-
-    if not content or len(content.strip()) < 10:
-        raise HTTPException(status_code=400, detail="Could not extract text from document. Try a higher quality file.")
-
-    try:
-        saved = save_document_service(db, file.filename or 'uploaded', content, user.tenant_id)
-        logger.info("User %s uploaded document %s (%d chars)", getattr(user, 'email', user.id), file.filename, len(content))
-        return {
-            "message": "Document uploaded successfully",
-            "document_id": getattr(saved, 'id', None),
-            "filename": file.filename,
-            "characters_extracted": len(content),
-            "preview": content[:200]
-        }
-    except Exception as e:
-        logger.exception("Failed to save document %s for user %s: %s", file.filename, getattr(user, 'email', user.id), e)
-        raise HTTPException(status_code=500, detail="Failed to save document")
-
-@router.get("/list")
-def list_documents(db: Session = Depends(get_db), user = Depends(get_current_user)):
-    docs = db.query(Document).filter(Document.tenant_id == user.tenant_id).all()
-    return [{"id": d.id, "filename": d.filename} for d in docs]
-
-
-@router.delete('/delete/{doc_id}')
-def delete_document(doc_id: int, db: Session = Depends(get_db), user = Depends(get_current_user)):
+def _own_doc(db: Session, doc_id: int, user) -> Document:
     doc = db.query(Document).filter(Document.id == doc_id, Document.tenant_id == user.tenant_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    # delete chunks
-    db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).delete()
-    db.delete(doc)
-    db.commit()
+    return doc
+
+
+@router.post("/upload")
+def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    filename = file.filename or "uploaded"
+    if not filename.lower().endswith(ALLOWED_EXT):
+        raise HTTPException(status_code=400,
+                            detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXT)}. Got: {filename}")
+    data = file.file.read(settings.max_upload_mb * 1024 * 1024 + 1)
+    if len(data) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb} MB")
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    try:
+        doc = ingestion.ingest_bytes(db, data, filename, user.tenant_id, user.id)
+    except ingestion.IngestionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Ingestion failed for %s: %s", filename, e)
+        raise HTTPException(status_code=500, detail="Failed to process document")
+    return {"message": "Document uploaded successfully", "document_id": doc.id, "filename": doc.filename,
+            "characters_extracted": len(doc.content or ""), "preview": (doc.content or "")[:200],
+            "analysis": ingestion.document_detail(db, doc)}
+
+
+@router.get("/list")
+def list_documents(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    counts = dict(db.query(DocumentChunk.document_id, func.count(DocumentChunk.id))
+                  .join(Document, Document.id == DocumentChunk.document_id)
+                  .filter(Document.tenant_id == user.tenant_id).group_by(DocumentChunk.document_id).all())
+    docs = db.query(Document).filter(Document.tenant_id == user.tenant_id).order_by(Document.id.desc()).all()
+    return [{"id": d.id, "filename": d.filename, "created_at": d.created_at, "doc_type": d.doc_type,
+             "summary": (d.summary or "")[:300] or None, "pages": d.pages, "chunk_count": counts.get(d.id, 0),
+             "quality_score": d.quality_score, "pii_count": (d.pii or {}).get("count", 0)} for d in docs]
+
+
+@router.get("/{doc_id}")
+def get_document(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    doc = _own_doc(db, doc_id, user)
+    ingestion.backfill_insights(db, doc)
+    return ingestion.document_detail(db, doc)
+
+
+@router.get("/{doc_id}/page/{page}/image")
+def page_image(doc_id: int, page: int, chunk_id: Optional[int] = None, db: Session = Depends(get_db),
+               user=Depends(get_current_user)):
+    """Rendered page with the cited chunk highlighted (pixel-level citation)."""
+    doc = _own_doc(db, doc_id, user)
+    src = Path(doc.source_path) if doc.source_path else None
+    if not src or not src.is_file() or src.suffix.lower() != ".pdf":
+        raise HTTPException(status_code=404, detail="Original page not available for this document")
+    passage = None
+    if chunk_id:
+        chunk = db.query(DocumentChunk).filter(DocumentChunk.id == chunk_id,
+                                               DocumentChunk.document_id == doc.id).first()
+        passage = chunk.chunk_text if chunk else None
+    try:
+        png, n = highlight.render_pdf_page(str(src), page, passage)
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Page not found")
+    return Response(content=png, media_type="image/png",
+                    headers={"X-Highlight-Boxes": str(n), "Access-Control-Expose-Headers": "X-Highlight-Boxes",
+                             "Cache-Control": "private, max-age=300"})
+
+
+class ExtractRequest(BaseModel):
+    fields: dict[str, str]
+
+
+@router.post("/{doc_id}/extract")
+def extract(doc_id: int, request: ExtractRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    doc = _own_doc(db, doc_id, user)
+    if not request.fields or len(request.fields) > 30:
+        raise HTTPException(status_code=400, detail="Provide 1-30 fields")
+    try:
+        return extract_fields(db, doc, request.fields)
+    except Exception as e:
+        logger.exception("extraction failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Extraction failed: {e}")
+
+
+@router.delete("/delete/{doc_id}")
+def delete_document(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    ingestion.delete_document(db, _own_doc(db, doc_id, user))
     return {"message": "Document deleted"}
 
 
-@router.put('/edit/{doc_id}')
-def edit_document(doc_id: int, filename: str, db: Session = Depends(get_db), user = Depends(get_current_user)):
-    doc = db.query(Document).filter(Document.id == doc_id, Document.tenant_id == user.tenant_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    doc.filename = filename
+@router.put("/edit/{doc_id}")
+def edit_document(doc_id: int, filename: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    doc = _own_doc(db, doc_id, user)
+    doc.filename = filename.strip()[:255] or doc.filename
     db.commit()
-    db.refresh(doc)
     return {"id": doc.id, "filename": doc.filename}
 
-@router.post('/save/{doc_id}')
-def save_document(doc_id: int, db: Session = Depends(get_db), user = Depends(get_current_user)):
-    doc = db.query(Document).filter(Document.id == doc_id, Document.tenant_id == user.tenant_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    saved_item = SavedItem(user_id=user.id, item_type="document", title=doc.filename, content=doc.content[:500])  # save snippet
-    db.add(saved_item)
+
+@router.post("/save/{doc_id}")
+def save_document(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    doc = _own_doc(db, doc_id, user)
+    db.add(SavedItem(user_id=user.id, item_type="document", title=doc.filename,
+                     content=(doc.summary or doc.content or "")[:1000]))
     db.commit()
     return {"message": "Document saved"}

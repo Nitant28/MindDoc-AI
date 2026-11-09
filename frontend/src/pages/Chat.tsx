@@ -1,257 +1,432 @@
-import React, { useState, useEffect } from 'react';
-import api from '../api';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { chatApi, documentsApi, errorMessage, isAbortError, streamChat } from '../api';
+import AssistantMessage from '../components/chat/AssistantMessage';
+import Composer from '../components/chat/Composer';
+import ScopePicker, { scopeLabel } from '../components/chat/ScopePicker';
+import SessionList from '../components/chat/SessionList';
+import { answerToMeta, type UiMessage } from '../components/chat/types';
+import { LogoMark } from '../components/Logo';
+import { Badge } from '../components/ui/Badge';
+import { Button } from '../components/ui/Button';
+import { useConfirm } from '../components/ui/Dialog';
+import { Icon } from '../components/ui/Icon';
+import { Segmented } from '../components/ui/Segmented';
+import { Spinner } from '../components/ui/Spinner';
+import { useToast } from '../components/ui/Toast';
+import { cx } from '../lib/cx';
+import { uid } from '../lib/format';
+import { useTitle } from '../lib/useTitle';
+import type { ChatMessage, ChatMode, ChatQueryBody, ChatSession, DocumentSummary } from '../types';
 
-const Chat: React.FC = () => {
-  const [query, setQuery] = useState('');
-  const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
-  const [sessions, setSessions] = useState([]);
-  const [currentSession, setCurrentSession] = useState(null);
-  const [documents, setDocuments] = useState([]);
-  const [selectedDocument, setSelectedDocument] = useState<number | null>(null);
-  const [isTyping, setIsTyping] = useState(false);
+const EXAMPLES = [
+  { icon: 'sparkles' as const, text: 'Summarize the key points across my documents.' },
+  { icon: 'alert' as const, text: 'What risks, obligations or penalties are mentioned?' },
+  { icon: 'user' as const, text: 'List the people and organizations involved and their roles.' },
+  { icon: 'calendar' as const, text: 'Which dates and deadlines appear, and what do they relate to?' },
+];
+
+function toUi(m: ChatMessage): UiMessage {
+  return {
+    id: uid(),
+    role: m.role === 'user' ? 'user' : 'assistant',
+    content: m.content ?? '',
+    meta: m.meta ?? null,
+    status: 'done',
+  };
+}
+
+function parseDocParam(v: string | null): number | null {
+  if (!v || !/^\d+$/.test(v)) return null;
+  const n = Number(v);
+  return n > 0 ? n : null;
+}
+
+export default function Chat() {
+  useTitle('Chat');
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const docParam = parseDocParam(searchParams.get('document'));
+
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [scope, setScope] = useState<number[]>(() => (docParam ? [docParam] : []));
+  const [mode, setMode] = useState<ChatMode>('fast');
+  const [input, setInput] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [drawer, setDrawer] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
+
+  const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickRef = useRef(true);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // ── data loading ───────────────────────────────────────────────
+  const refreshSessions = useCallback(async () => {
+    try {
+      setSessions(await chatApi.sessions());
+    } catch (e) {
+      toast.error('Could not load chat history', errorMessage(e));
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, [toast]);
 
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const docId = urlParams.get('document');
-    if (docId) {
-      setSelectedDocument(parseInt(docId));
-    }
-    const fetchSessions = async () => {
-      try {
-        const response = await api.get('/chat/sessions');
-        setSessions(response.data);
-      } catch (error: any) {
-        alert(error.response?.data?.detail || 'Failed to load sessions');
-      }
-    };
-    const fetchDocuments = async () => {
-      try {
-        const response = await api.get('/documents/list');
-        setDocuments(response.data);
-      } catch (error: any) {
-        console.error(error);
-      }
-    };
-    fetchSessions();
-    fetchDocuments();
-  }, []);
+    void refreshSessions();
+    documentsApi
+      .list()
+      .then(setDocuments)
+      .catch(() => setDocuments([]));
+  }, [refreshSessions]);
 
-  const fetchMessages = async (sessionId: number) => {
-    try {
-      const response = await api.get(`/chat/messages/${sessionId}`);
-      setMessages(response.data);
-    } catch (error: any) {
-      alert(error.response?.data?.detail || 'Failed to load messages');
-    }
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  // ?document=ID → scope (honours links from Dashboard / Document page)
+  useEffect(() => {
+    if (docParam && !(scope.length === 1 && scope[0] === docParam)) setScope([docParam]);
+  }, [docParam]);
+
+  const changeScope = (ids: number[]) => {
+    setScope(ids);
+    const next = new URLSearchParams(searchParams);
+    if (ids.length === 1) next.set('document', String(ids[0]));
+    else next.delete('document');
+    setSearchParams(next, { replace: true });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query) return;
-    const userMessage = { role: 'user', content: query };
-    setMessages(prev => [...prev, userMessage]);
-    setQuery('');
-    setIsTyping(true);
+  // ── scrolling ──────────────────────────────────────────────────
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+    stickRef.current = bottom;
+    if (bottom !== atBottom) setAtBottom(bottom);
+  };
+
+  const scrollToBottom = (smooth = false) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    stickRef.current = true;
+    setAtBottom(true);
+  };
+
+  useLayoutEffect(() => {
+    if (stickRef.current) {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+  }, [messages]);
+
+  // ── sessions ───────────────────────────────────────────────────
+  const stopStreaming = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  };
+
+  const openSession = async (id: number) => {
+    setDrawer(false);
+    if (id === sessionId && messages.length) return;
+    stopStreaming();
+    setSessionId(id);
+    setLoadingMessages(true);
+    setMessages([]);
     try {
-      const response = await api.post('/chat/query', { query, session_id: currentSession, document_id: selectedDocument });
-      const assistantMessage = { role: 'assistant', content: response.data.answer };
-      setMessages(prev => [...prev, assistantMessage]);
-      if (!currentSession) {
-        setCurrentSession(response.data.session_id);
-        // Fetch updated sessions
-        const sessionsResponse = await api.get('/chat/sessions');
-        setSessions(sessionsResponse.data);
-      }
-    } catch (error: any) {
-      alert(error.response?.data?.detail || 'Query failed');
-      // Remove the user message if failed
-      setMessages(prev => prev.slice(0, -1));
+      const msgs = await chatApi.messages(id);
+      stickRef.current = true;
+      setMessages(msgs.map(toUi));
+    } catch (e) {
+      toast.error('Could not load conversation', errorMessage(e));
     } finally {
-      setIsTyping(false);
+      setLoadingMessages(false);
     }
   };
+
+  const newChat = () => {
+    stopStreaming();
+    setSessionId(null);
+    setMessages([]);
+    setDrawer(false);
+    window.setTimeout(() => composerRef.current?.focus(), 0);
+  };
+
+  const renameSession = async (id: number, title: string) => {
+    const prev = sessions;
+    setSessions((ss) => ss.map((s) => (s.id === id ? { ...s, title } : s)));
+    try {
+      await chatApi.renameSession(id, title);
+      toast.success('Chat renamed');
+    } catch (e) {
+      setSessions(prev);
+      toast.error('Rename failed', errorMessage(e));
+    }
+  };
+
+  const deleteSession = async (s: ChatSession) => {
+    const ok = await confirm({
+      title: 'Delete conversation?',
+      description: `“${s.title || 'Untitled chat'}” and all of its messages will be permanently deleted.`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await chatApi.deleteSession(s.id);
+      setSessions((ss) => ss.filter((x) => x.id !== s.id));
+      if (sessionId === s.id) newChat();
+      toast.success('Conversation deleted');
+    } catch (e) {
+      toast.error('Delete failed', errorMessage(e));
+    }
+  };
+
+  // ── sending ────────────────────────────────────────────────────
+  const send = async (text?: string) => {
+    const q = (text ?? input).trim();
+    if (!q || streaming) return;
+    setInput('');
+    const asstId = uid();
+    stickRef.current = true;
+    setMessages((ms) => [
+      ...ms,
+      { id: uid(), role: 'user', content: q },
+      { id: asstId, role: 'assistant', content: '', status: 'streaming', liveTrace: [], mode },
+    ]);
+    setStreaming(true);
+
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    const patch = (fn: (m: UiMessage) => UiMessage) => setMessages((ms) => ms.map((m) => (m.id === asstId ? fn(m) : m)));
+    const body: ChatQueryBody = {
+      query: q,
+      session_id: sessionId,
+      document_id: scope.length === 1 ? scope[0] : null,
+      document_ids: scope.length ? scope : null,
+      mode,
+    };
+
+    try {
+      const answer = await streamChat(
+        body,
+        (evt) => {
+          switch (evt.type) {
+            case 'trace':
+              patch((m) => ({ ...m, liveTrace: [...(m.liveTrace ?? []), { step: evt.step, detail: evt.detail, ms: evt.ms }] }));
+              break;
+            case 'token':
+              patch((m) => ({ ...m, content: m.content + evt.text }));
+              break;
+            case 'fallback':
+              patch((m) => ({ ...m, content: '', fallback: true }));
+              break;
+            default:
+              break;
+          }
+        },
+        ctrl.signal,
+      );
+      patch((m) => ({ ...m, content: answer.answer || m.content, status: 'done', meta: answerToMeta(answer, m.liveTrace) }));
+      if (answer.session_id != null && answer.session_id !== sessionId) {
+        setSessionId(answer.session_id);
+        void refreshSessions();
+      } else if (sessionId == null) {
+        void refreshSessions();
+      }
+    } catch (err) {
+      if (isAbortError(err) || ctrl.signal.aborted) {
+        patch((m) => ({ ...m, status: 'stopped', content: m.content || '_Generation stopped._' }));
+      } else {
+        const msg = errorMessage(err, 'The query failed');
+        patch((m) => ({ ...m, status: 'error', error: msg }));
+        toast.error('Query failed', msg);
+      }
+    } finally {
+      if (abortRef.current === ctrl) abortRef.current = null;
+      setStreaming(false);
+    }
+  };
+
+  const retry = (asstId: string) => {
+    const idx = messages.findIndex((m) => m.id === asstId);
+    const question = idx > 0 ? messages[idx - 1] : null;
+    if (!question || question.role !== 'user') return;
+    setMessages((ms) => ms.filter((_m, i) => i !== idx && i !== idx - 1));
+    void send(question.content);
+  };
+
+  // ── render ─────────────────────────────────────────────────────
+  const activeSession = sessions.find((s) => s.id === sessionId);
+  const scopeText = scopeLabel(documents, scope);
+  const scopeChips = useMemo(
+    () => scope.map((id) => ({ id, name: documents.find((d) => d.id === id)?.filename ?? `Document #${id}` })),
+    [scope, documents],
+  );
+
+  const sessionPanel = (
+    <SessionList
+      sessions={sessions}
+      activeId={sessionId}
+      loading={sessionsLoading}
+      onSelect={(id) => void openSession(id)}
+      onNew={newChat}
+      onRename={renameSession}
+      onDelete={(s) => void deleteSession(s)}
+    />
+  );
 
   return (
-    <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-      <div className="px-4 py-6 sm:px-0">
-        <div className="flex">
-          <div className="w-1/4 bg-white p-4 rounded-lg shadow mr-4">
-            <h3 className="text-lg font-semibold mb-4 flex items-center">
-              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z"/>
-              </svg>
-              Chat Sessions
-            </h3>
-            <ul>
-              {sessions.map((session: any) => (
-                <li key={session.id} className="mb-2 flex items-center justify-between cursor-pointer" onClick={() => { setCurrentSession(session.id); fetchMessages(session.id); }}>
-                  <span className="flex-1">{session.title}</span>
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm('Are you sure you want to delete this session?')) {
-                        try {
-                          await api.delete(`/chat/sessions/${session.id}`);
-                          setSessions(sessions.filter((s: any) => s.id !== session.id));
-                          if (currentSession === session.id) {
-                            setCurrentSession(null);
-                            setMessages([]);
-                          }
-                        } catch (error) {
-                          alert('Failed to delete session');
-                        }
-                      }
-                    }}
-                    className="text-red-500 hover:text-red-700 ml-2"
-                  >
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <h3 className="text-lg font-semibold mb-4 mt-6 flex items-center">
-              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-              </svg>
-              Recent Documents
-            </h3>
-            <ul>
-              {documents.slice(0, 5).map((doc: any) => (
-                <li key={doc.id} className={`mb-2 p-2 rounded flex items-center justify-between ${selectedDocument === doc.id ? 'bg-blue-100' : 'hover:bg-gray-100'}`}>
-                  <span className="cursor-pointer flex-1 text-sm" onClick={() => setSelectedDocument(doc.id)}>{doc.filename}</span>
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm('Delete this document?')) {
-                        try {
-                          await api.delete(`/documents/delete/${doc.id}`);
-                          const docsResponse = await api.get('/documents/list');
-                          setDocuments(docsResponse.data);
-                          if (selectedDocument === doc.id) setSelectedDocument(null);
-                        } catch (error) {
-                          alert('Failed to delete document');
-                        }
-                      }
-                    }}
-                    className="text-red-500 hover:text-red-700 ml-2 flex-shrink-0"
-                  >
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </li>
-              ))}
-            </ul>
+    <div className="flex h-[calc(100dvh-3.5rem)] min-h-0">
+      {/* Sessions — desktop */}
+      <aside className="hidden w-64 shrink-0 border-r border-line bg-surface/50 md:block" aria-label="Chat history">
+        {sessionPanel}
+      </aside>
+
+      {/* Sessions — mobile drawer */}
+      {drawer ? (
+        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Chat history">
+          <div className="absolute inset-0 animate-fade-in bg-black/50" onClick={() => setDrawer(false)} aria-hidden="true" />
+          <div className="absolute inset-y-0 left-0 w-72 max-w-[85vw] animate-slide-up border-r border-line bg-surface shadow-2xl">
+            <div className="flex h-12 items-center justify-between border-b border-line px-3">
+              <span className="text-sm font-semibold">Conversations</span>
+              <Button variant="ghost" size="icon-sm" aria-label="Close chat history" onClick={() => setDrawer(false)} icon="x" />
+            </div>
+            <div className="h-[calc(100%-3rem)]">{sessionPanel}</div>
           </div>
-          <div className="w-3/4 bg-white p-6 rounded-lg shadow-lg border border-gray-200">
-            <div className="h-96 overflow-y-auto mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              {messages.length === 0 && !isTyping ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center">
-                    <p className="text-gray-500 text-lg">Start a conversation with your documents.</p>
-                    <p className="text-gray-400 text-sm mt-2">Upload a document or ask a question to begin.</p>
+        </div>
+      ) : null}
+
+      <section className="flex min-w-0 flex-1 flex-col" aria-label="Conversation">
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2 sm:px-4">
+          <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Show chat history" onClick={() => setDrawer(true)} icon="panel" />
+          <h1 className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{activeSession?.title || (sessionId ? 'Conversation' : 'New conversation')}</h1>
+          <ScopePicker documents={documents} value={scope} onChange={changeScope} disabled={streaming} />
+          <Segmented<ChatMode>
+            label="Answer mode"
+            value={mode}
+            onChange={setMode}
+            disabled={streaming}
+            options={[
+              { value: 'fast', label: 'Fast', icon: 'zap', hint: 'Hybrid BM25 + dense retrieval, single pass' },
+              { value: 'deep', label: 'Deep', icon: 'brain', hint: 'Query decomposition, multi-query retrieval and LLM verification (slower, better)' },
+            ]}
+          />
+        </div>
+
+        {/* Messages */}
+        <div className="relative min-h-0 flex-1">
+          <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto" aria-live="off">
+            <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
+              {loadingMessages ? (
+                <div className="flex justify-center py-16 text-muted">
+                  <Spinner size="lg" className="text-accent" label="Loading conversation" />
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="flex flex-col items-center py-10 text-center sm:py-16">
+                  <LogoMark size={40} />
+                  <h2 className="mt-4 text-lg font-semibold tracking-tight text-fg">Ask anything about your documents</h2>
+                  <p className="mt-1.5 max-w-md text-sm text-muted">
+                    Every answer is glass-box: inline citations, a confidence score, a groundedness check and the full reasoning trace.
+                  </p>
+                  <p className="mt-3 text-xs text-subtle">
+                    Searching <span className="font-medium text-muted">{scopeText}</span>
+                    {scope.length === 0 && documents.length ? ` · ${documents.length} documents` : ''} · {mode === 'deep' ? 'Deep' : 'Fast'} mode
+                  </p>
+                  <div className="mt-8 grid w-full max-w-xl gap-2 sm:grid-cols-2">
+                    {EXAMPLES.map((ex) => (
+                      <button
+                        key={ex.text}
+                        type="button"
+                        onClick={() => void send(ex.text)}
+                        className="flex items-start gap-2.5 rounded-xl border border-line bg-surface p-3 text-left text-sm text-muted transition-colors hover:border-line-strong hover:bg-elevated hover:text-fg"
+                      >
+                        <Icon name={ex.icon} className="mt-0.5 h-4 w-4 text-accent" />
+                        {ex.text}
+                      </button>
+                    ))}
                   </div>
                 </div>
               ) : (
-                <>
-                  {messages.map((msg: any, index) => (
-                    <div key={index} className={`mb-4 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg shadow-sm ${msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-white text-gray-800 border border-gray-200'}`}>
-                        <p className="text-sm leading-relaxed">{msg.content}</p>
-                        {msg.role === 'assistant' && (
-                          <button
-                            onClick={async () => {
-                              try {
-                                await api.post('/chat/save_response', { title: `Saved Response ${index}`, content: msg.content });
-                                alert('Response saved!');
-                              } catch (error) {
-                                alert('Save failed');
-                              }
-                            }}
-                            className="mt-2 text-xs text-blue-500 hover:text-blue-700"
-                          >
-                            Save
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {isTyping && (
-                    <div className="flex justify-start mb-4">
-                      <div className="bg-white text-gray-800 shadow-sm px-4 py-3 rounded-lg border border-gray-200">
-                        <div className="flex space-x-1">
-                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                <div className="space-y-8">
+                  {messages.map((m, i) =>
+                    m.role === 'user' ? (
+                      <div key={m.id} className="flex justify-end">
+                        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md border border-line bg-elevated px-4 py-2.5 text-sm text-fg">
+                          {m.content}
                         </div>
                       </div>
-                    </div>
+                    ) : (
+                      <AssistantMessage
+                        key={m.id}
+                        message={m}
+                        question={i > 0 && messages[i - 1].role === 'user' ? messages[i - 1].content : undefined}
+                        onRetry={m.status === 'error' ? () => retry(m.id) : undefined}
+                      />
+                    ),
                   )}
-                </>
+                </div>
               )}
             </div>
-            <form onSubmit={handleSubmit}>
-              {selectedDocument ? (
-                <div className="mb-2 text-sm text-gray-600 flex items-center justify-between">
-                  <span>Using: {documents.find((d: any) => d.id === selectedDocument)?.filename || 'Selected document'}</span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDocument(null)}
-                    className="text-red-500 hover:text-red-700 text-xs"
-                  >
-                    Detach
-                  </button>
-                </div>
-              ) : null}
-              <div className="flex space-x-2 mb-2">
-                <input
-                  type="file"
-                  accept=".pdf,.docx,.png,.jpg,.jpeg,.tiff,.bmp,.txt"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                        const formData = new FormData();
-                        formData.append('file', file);
-                        try {
-                          const response = await api.post('/documents/upload', formData);
-                          alert('Document uploaded and ready for chat!');
-                          setSelectedDocument(response.data.document_id);
-                          // Refresh documents
-                          const docsResponse = await api.get('/documents/list');
-                          setDocuments(docsResponse.data);
-                        } catch (error) {
-                          alert(error.response?.data?.detail || 'Upload failed');
-                        }
-                      }
-                  }}
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm"
-                />
-                <button type="button" className="px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
-                  Attach
-                </button>
+          </div>
+          {!atBottom && messages.length > 0 ? (
+            <Button
+              variant="secondary"
+              size="xs"
+              icon="arrowDown"
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-lg"
+              onClick={() => scrollToBottom(true)}
+            >
+              Jump to latest
+            </Button>
+          ) : null}
+        </div>
+
+        {/* Composer */}
+        <div className="border-t border-line bg-bg/80 px-3 pb-3 pt-2 backdrop-blur sm:px-4">
+          <div className="mx-auto w-full max-w-3xl">
+            {scopeChips.length > 0 ? (
+              <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-subtle">Scope:</span>
+                {scopeChips.map((c) => (
+                  <span key={c.id} className="inline-flex max-w-[16rem] items-center gap-1 rounded-md border border-line bg-surface py-0.5 pl-2 pr-0.5 text-muted">
+                    <span className="truncate">{c.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => changeScope(scope.filter((x) => x !== c.id))}
+                      className="rounded p-0.5 hover:bg-elevated hover:text-fg"
+                      aria-label={`Remove ${c.name} from scope`}
+                      disabled={streaming}
+                    >
+                      <Icon name="x" className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
               </div>
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm"
-                  placeholder="Ask a question about your documents…"
-                />
-                <button type="submit" className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all duration-200 flex items-center justify-center font-semibold shadow-lg">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.409l-7-14z"/>
-                  </svg>
-                </button>
-              </div>
-            </form>
+            ) : null}
+            <Composer
+              ref={composerRef}
+              value={input}
+              onChange={setInput}
+              onSubmit={() => void send()}
+              onStop={stopStreaming}
+              streaming={streaming}
+              footer={
+                <span className={cx('inline-flex items-center gap-1.5')}>
+                  <Badge tone={mode === 'deep' ? 'accent' : 'neutral'}>{mode === 'deep' ? 'Deep' : 'Fast'}</Badge>
+                  <span className="truncate">{scopeText}</span>
+                </span>
+              }
+            />
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
-};
-
-export default Chat;
+}

@@ -65,3 +65,6 @@ Thumbs.db
 /server.exe
 
 OllamaSetup.exe
+
+# Uploaded originals
+data/
