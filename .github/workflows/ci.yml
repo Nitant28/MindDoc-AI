@@ -52,3 +52,30 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+
+  docker:
+    # Builds the same slim image Render deploys and boots it under Render-like limits.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the slim image
+        run: docker build -t minddoc .
+      - name: Boot with 512 MB, Render's PORT and an SQLite path in a missing folder
+        run: |
+          docker run -d --name md --memory=512m -p 10000:10000 -e PORT=10000 \
+            -e DATABASE_URL=sqlite:////app/data/minddoc.db minddoc
+          for i in $(seq 1 60); do curl -fsS localhost:10000/api/health && break; sleep 2; done
+          curl -fsS localhost:10000/api/health | grep -q healthy
+          curl -fsS localhost:10000/ | grep -qi '<div id="root">'
+      - name: Smoke test (register, upload, ask)
+        run: |
+          TOKEN=$(curl -fsS -X POST localhost:10000/api/auth/register -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"correct-horse-1"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+          printf 'Either party may terminate this agreement with 60 days written notice.\n' > contract.txt
+          curl -fsS -H "Authorization: Bearer $TOKEN" -F file=@contract.txt localhost:10000/api/documents/upload > /dev/null
+          curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            -d '{"query":"How much notice is needed to terminate?"}' localhost:10000/api/chat/query | grep -q '60 days'
+          docker stats --no-stream --format 'memory {{.MemUsage}}' md
+      - name: Container logs
+        if: always()
+        run: docker logs md 2>&1 | tail -50

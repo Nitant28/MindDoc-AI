@@ -1,9 +1,11 @@
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy import (Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint,
                         create_engine, event, inspect, text)
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -17,6 +19,10 @@ if _is_sqlite:
     _engine_kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
     if ":memory:" in settings.database_url or settings.database_url.rstrip("/") == "sqlite:":
         _engine_kwargs["poolclass"] = StaticPool
+    else:  # SQLite won't create a missing folder (e.g. a fresh container volume)
+        _db_file = make_url(settings.database_url).database
+        if _db_file:
+            Path(_db_file).parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(settings.database_url, **_engine_kwargs)
 
