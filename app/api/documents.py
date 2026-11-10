@@ -1,4 +1,6 @@
+import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -11,7 +13,7 @@ from app.ai.extraction import extract_fields
 from app.api.deps import enforce_rate, get_current_user
 from app.core.config import settings
 from app.core.security import query_limiter, upload_limiter
-from app.database.models import Document, DocumentChunk, SavedItem, get_db
+from app.database.models import Case, Document, DocumentChunk, Job, SavedItem, get_db
 from app.services import ingestion
 from app.services.document_service import ALLOWED_EXT
 from app.vision import highlight
@@ -28,7 +30,10 @@ def _own_doc(db: Session, doc_id: int, user) -> Document:
 
 
 @router.post("/upload")
-def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def upload_document(response: Response, file: UploadFile = File(...), wait: bool = False,
+                    case_id: Optional[int] = None, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Upload a document. Default: validated, stored and queued (HTTP 202) — poll GET /{id}/status. With
+    ?wait=true (or ASYNC_INGESTION=false) it is processed inside the request and the analysis is returned."""
     enforce_rate(upload_limiter, user)
     filename = file.filename or "uploaded"
     if not filename.lower().endswith(ALLOWED_EXT):
@@ -39,6 +44,18 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db),
         raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb} MB")
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
+    if case_id is not None and not db.query(Case).filter(Case.id == case_id, Case.tenant_id == user.tenant_id).first():
+        raise HTTPException(status_code=404, detail="Case not found")
+    if settings.async_ingestion and not wait:
+        try:
+            doc, created = ingestion.register_upload(db, data, filename, user.tenant_id, user.id, case_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        response.status_code = 202 if doc.status != "completed" else 200
+        return {"message": "Document queued for processing" if created else "Document already uploaded",
+                "document_id": doc.id, "filename": doc.filename, "status": doc.status,
+                "status_url": f"/api/documents/{doc.id}/status",
+                "analysis": ingestion.document_detail(db, doc) if doc.status == "completed" else None}
     try:
         doc = ingestion.ingest_bytes(db, data, filename, user.tenant_id, user.id)
     except ingestion.IngestionError as e:
@@ -49,8 +66,37 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db),
         logger.exception("Ingestion failed for %s: %s", filename, e)
         raise HTTPException(status_code=500, detail="Failed to process document")
     return {"message": "Document uploaded successfully", "document_id": doc.id, "filename": doc.filename,
-            "characters_extracted": len(doc.content or ""), "preview": (doc.content or "")[:200],
-            "analysis": ingestion.document_detail(db, doc)}
+            "status": doc.status, "characters_extracted": len(doc.content or ""),
+            "preview": (doc.content or "")[:200], "analysis": ingestion.document_detail(db, doc)}
+
+
+@router.get("/{doc_id}/status")
+def document_status(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Processing state for the Upload page and Processing Monitor."""
+    doc = _own_doc(db, doc_id, user)
+    job = (db.query(Job).filter(Job.tenant_id == user.tenant_id, Job.kind == "ingest_document",
+                                Job.subject_id == doc.id).order_by(Job.id.desc()).first())
+    return {"document_id": doc.id, "filename": doc.filename, "status": doc.status, "detail": doc.status_detail,
+            "job": None if job is None else {
+                "id": job.id, "state": job.state, "attempts": job.attempts, "max_attempts": job.max_attempts,
+                "progress": json.loads(job.progress) if job.progress else None,
+                "last_error": (job.last_error or "").split("\n")[0][:500] or None,
+                "updated_at": job.updated_at}}
+
+
+@router.post("/{doc_id}/reprocess")
+def reprocess_document(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Queue a fresh processing run (e.g. after a failure or a parser upgrade)."""
+    from app.jobs import queue
+    enforce_rate(upload_limiter, user)
+    doc = _own_doc(db, doc_id, user)
+    if doc.status in ("queued", "processing"):
+        raise HTTPException(status_code=409, detail=f"Document is already {doc.status}")
+    doc.status, doc.status_detail = "queued", "reprocessing requested"
+    job = queue.enqueue(db, user.tenant_id, "ingest_document", {"document_id": doc.id},
+                        idempotency_key=f"reprocess:{doc.id}:{datetime.utcnow().isoformat()}", subject_id=doc.id)
+    db.commit()
+    return {"document_id": doc.id, "status": doc.status, "job_id": job.id}
 
 
 @router.get("/list")
@@ -61,7 +107,8 @@ def list_documents(db: Session = Depends(get_db), user=Depends(get_current_user)
     docs = db.query(Document).filter(Document.tenant_id == user.tenant_id).order_by(Document.id.desc()).all()
     return [{"id": d.id, "filename": d.filename, "created_at": d.created_at, "doc_type": d.doc_type,
              "summary": (d.summary or "")[:300] or None, "pages": d.pages, "chunk_count": counts.get(d.id, 0),
-             "quality_score": d.quality_score, "pii_count": (d.pii or {}).get("count", 0)} for d in docs]
+             "quality_score": d.quality_score, "pii_count": (d.pii or {}).get("count", 0),
+             "status": d.status or "completed", "status_detail": d.status_detail} for d in docs]
 
 
 @router.get("/{doc_id}")

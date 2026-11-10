@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     rate_query_per_min: int = 60
     rate_eval_per_min: int = 5
     storage_dir: str = "./data/uploads"  # originals, for pixel-level citations
+    # PostgreSQL (ADR-0002): connections switch to this non-owner role so row-level security applies.
+    db_app_role: str = "minddoc_app"
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    # Background processing (ADR-0003/0013): embedded worker threads in the web process (demo hosts), or a separate
+    # `python -m app.worker` process. Async ingestion returns immediately and processes the upload in a job.
+    embedded_worker: bool = True
+    worker_threads: int = 1
+    async_ingestion: bool = True
 
     # --- Auth -----------------------------------------------------------------
     jwt_secret: str = ""

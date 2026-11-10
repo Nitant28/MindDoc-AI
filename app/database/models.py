@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import (Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint,
+from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint,
                         create_engine, event, inspect, text)
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker
@@ -24,7 +24,31 @@ if _is_sqlite:
         if _db_file:
             Path(_db_file).parent.mkdir(parents=True, exist_ok=True)
 
+if settings.database_url.startswith("postgresql"):
+    _engine_kwargs.update(pool_pre_ping=True, pool_size=settings.db_pool_size, max_overflow=settings.db_max_overflow,
+                          pool_recycle=1800)
+
 engine = create_engine(settings.database_url, **_engine_kwargs)
+IS_POSTGRES = engine.dialect.name == "postgresql"
+RLS_ACTIVE = {"value": False}  # True once connections run as the non-owner application role (row-level security)
+
+if IS_POSTGRES:
+    @event.listens_for(engine, "connect")
+    def _use_app_role(dbapi_conn, connection_record):
+        """Run every application connection as the non-owner role, so row-level security applies (ADR-0002)."""
+        role = settings.db_app_role
+        if not role:
+            return
+        cur = dbapi_conn.cursor()
+        try:
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,))
+            if cur.fetchone():
+                cur.execute('SET ROLE "%s"' % role.replace('"', ''))
+                RLS_ACTIVE["value"] = True
+            else:
+                logger.warning("database role %s not found: run migrations; row-level security is NOT active", role)
+        finally:
+            cur.close()
 
 if _is_sqlite:
     @event.listens_for(engine, "connect")
@@ -84,6 +108,10 @@ class Document(Base):
     vision_json = Column(Text)
     pii_json = Column(Text)
     security_json = Column(Text)
+    # ingestion lifecycle (async processing, design G 5.3): queued -> processing -> completed | failed
+    status = Column(String, default="completed", index=True)
+    status_detail = Column(Text)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     tenant = relationship("Tenant")
 
     @property
@@ -110,6 +138,7 @@ class Document(Base):
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
     document_id = Column(Integer, ForeignKey("documents.id"), index=True)
     chunk_text = Column(Text)
     embedding = Column(Text)  # JSON list[float]
@@ -122,6 +151,7 @@ class DocumentChunk(Base):
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     title = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -131,6 +161,7 @@ class ChatSession(Base):
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
     session_id = Column(Integer, ForeignKey("chat_sessions.id"), index=True)
     role = Column(String)  # user | assistant
     content = Column(Text)
@@ -142,6 +173,7 @@ class ChatMessage(Base):
 class SavedItem(Base):
     __tablename__ = "saved_items"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     item_type = Column(String)  # document | response
     title = Column(String)
@@ -166,6 +198,7 @@ class Entity(Base):
 class EntityMention(Base):
     __tablename__ = "entity_mentions"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
     entity_id = Column(Integer, ForeignKey("entities.id", ondelete="CASCADE"), index=True)
     document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), index=True)
     chunk_id = Column(Integer, ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=True)
@@ -204,6 +237,65 @@ class QueryLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+# ---------------------------------------------------------------- Cases, jobs, audit (R2 foundation)
+
+class Case(Base):
+    """An engagement inside a tenant (ADR-0012). Every tenant has a default case named "General"."""
+    __tablename__ = "cases"
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    title = Column(String, nullable=False)
+    status = Column(String, default="open")
+    is_default = Column(Boolean, default=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CaseDocument(Base):
+    __tablename__ = "case_documents"
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True)
+    added_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Job(Base):
+    """Durable background job (ADR-0003). Inserted in the same transaction as the state it acts on."""
+    __tablename__ = "jobs"
+    __table_args__ = (UniqueConstraint("tenant_id", "kind", "idempotency_key", name="uq_job_idempotency"),)
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    kind = Column(String, nullable=False)
+    subject_id = Column(Integer, index=True)  # e.g. the document a job processes
+    payload = Column(Text, nullable=False, default="{}")
+    idempotency_key = Column(String, nullable=False)
+    state = Column(String, nullable=False, default="queued", index=True)  # queued|running|succeeded|dead|cancelled
+    priority = Column(Integer, nullable=False, default=0)
+    run_after = Column(DateTime, nullable=False, default=datetime.utcnow)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=5)
+    locked_by = Column(String)
+    lease_until = Column(DateTime)
+    last_error = Column(Text)
+    progress = Column(Text)  # JSON: {"stage": ..., "detail": ...}
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AuditEvent(Base):
+    """Append-only, hash-chained audit trail (per tenant)."""
+    __tablename__ = "audit_events"
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    actor_id = Column(Integer, nullable=True)
+    verb = Column(String, nullable=False)
+    object_type = Column(String, nullable=False)
+    object_id = Column(String, nullable=True)
+    payload_hash = Column(String, nullable=False)
+    prev_hash = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def _auto_migrate():
     """Add columns introduced after a table was created (SQLite has no create_all upgrades)."""
     insp = inspect(engine)
@@ -222,10 +314,18 @@ def _auto_migrate():
 
 
 def create_tables():
-    """Create/upgrade all tables. Safe to call repeatedly."""
-    Base.metadata.create_all(bind=engine)
-    _auto_migrate()
-    logger.info("Database tables created/verified")
+    """Create/upgrade the schema. PostgreSQL: Alembic migrations under an advisory lock. SQLite (single-user dev
+    fallback, no row-level security): create_all + additive column migration."""
+    if IS_POSTGRES:
+        from app.database.migrate import upgrade_head
+        upgrade_head()
+        # Connections opened before the migration created the application role run as the login (owner) role and
+        # would bypass row-level security. Discard them; every new connection runs SET ROLE (see _use_app_role).
+        engine.dispose()
+    else:
+        Base.metadata.create_all(bind=engine)
+        _auto_migrate()
+    logger.info("Database schema ready (%s)", engine.dialect.name)
     return True
 
 

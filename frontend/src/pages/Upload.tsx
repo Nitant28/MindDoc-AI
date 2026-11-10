@@ -24,8 +24,15 @@ interface QueueItem {
   progress: number;
   result?: UploadResponse;
   error?: string;
+  /** Live processing stage reported by the background worker (asynchronous ingestion). */
+  stage?: string;
+  documentId?: number;
   open: boolean;
 }
+
+const POLL_MS = 1500;
+const POLL_LIMIT_MS = 15 * 60 * 1000;
+const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
 const ACCEPT = ACCEPTED_EXTENSIONS.join(',');
 const extOf = (name: string): string => {
@@ -77,11 +84,35 @@ export default function Upload() {
       busy.current = true;
       update(item.id, { status: 'uploading', progress: 0, error: undefined });
       try {
-        const res = await documentsApi.upload(item.file, (p) => {
-          update(item.id, p >= 100 ? { progress: 100, status: 'processing' } : { progress: p });
-        });
+        let res: UploadResponse;
+        if (item.documentId) {
+          // Retry after a failed background run: reprocess the stored original instead of uploading again.
+          await documentsApi.reprocess(item.documentId);
+          res = { message: 'Reprocessing', document_id: item.documentId, filename: item.file.name, status: 'queued' };
+        } else {
+          res = await documentsApi.upload(item.file, (p) => {
+            update(item.id, p >= 100 ? { progress: 100, status: 'processing' } : { progress: p });
+          });
+        }
+        if (res.status === 'failed') throw new Error('This file failed processing earlier. Use Retry to process it again.');
+        update(item.id, { documentId: res.document_id, status: 'processing', stage: 'Waiting for a worker' });
+        // Asynchronous ingestion: the server queued the file; follow its job until it completes or fails.
+        const started = Date.now();
+        while (res.status === 'queued' || res.status === 'processing') {
+          if (Date.now() - started > POLL_LIMIT_MS) throw new Error('Still processing after 15 minutes. It will finish in the background; check the document list.');
+          await sleep(POLL_MS);
+          const st = await documentsApi.status(res.document_id);
+          const stage = st.job?.progress?.stage ?? (st.status === 'queued' ? 'Waiting for a worker' : st.status);
+          update(item.id, { stage: st.job?.progress?.detail ? `${stage} · ${st.job.progress.detail}` : stage });
+          if (st.status === 'failed') {
+            throw new Error(st.detail || st.job?.last_error || 'Processing failed');
+          }
+          if (st.status === 'completed') {
+            res = { ...res, status: 'completed', analysis: await documentsApi.get(res.document_id) };
+          }
+        }
         busy.current = false;
-        update(item.id, { status: 'done', progress: 100, result: res });
+        update(item.id, { status: 'done', progress: 100, result: res, stage: undefined });
         const flags = res.analysis?.security_flags ?? [];
         if (flags.some((f) => f.type === 'prompt_injection')) {
           toast.warning('Prompt injection detected', `${res.filename} contains instructions aimed at the AI.`);
@@ -199,7 +230,9 @@ export default function Upload() {
                     {it.status === 'processing' ? (
                       <div className="mt-2">
                         <IndeterminateBar label={`Analyzing ${it.file.name}`} />
-                        <p className="mt-1 text-[11px] text-subtle">Extracting text · OCR · classification · entities · PII & injection scan · embeddings…</p>
+                        <p className="mt-1 text-[11px] text-subtle" aria-live="polite">
+                          {it.stage ? `Background processing: ${it.stage}` : 'Uploading…'}
+                        </p>
                       </div>
                     ) : null}
                     {it.status === 'error' ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{it.error}</p> : null}

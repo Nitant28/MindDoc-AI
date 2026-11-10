@@ -138,6 +138,43 @@ def parse_pdf(data: bytes) -> ParsedDocument:
     return ParsedDocument(pages, "pdf")
 
 
+def validate_upload(data: bytes, filename: str) -> None:
+    """Cheap checks run before an upload is queued, so limit violations are an immediate 400, not a failed job.
+
+    Reads only headers / page counts / zip directories — never decodes pages or inflates archives.
+    """
+    name = filename.lower()
+    if name.endswith(".pdf"):
+        try:
+            if FITZ_AVAILABLE:
+                with fitz.open(stream=data, filetype="pdf") as doc:
+                    _check_pages(len(doc))
+            elif PDFPLUMBER_AVAILABLE:
+                with pdfplumber.open(io.BytesIO(data)) as pdf:
+                    _check_pages(len(pdf.pages))
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Not a readable PDF: {type(e).__name__}") from e
+    elif name.endswith(".docx"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                infos = z.infolist()
+        except zipfile.BadZipFile:
+            raise ValueError("Not a valid .docx file")
+        total = sum(i.file_size for i in infos)
+        if len(infos) > 5000 or total > settings.max_docx_uncompressed_mb * 1024 * 1024:
+            raise ValueError(f"DOCX expands to {total // (1024 * 1024)} MB in {len(infos)} parts; "
+                             f"the limit is {settings.max_docx_uncompressed_mb} MB")
+    elif name.endswith(IMAGE_EXT):
+        try:
+            img = PILImage.open(io.BytesIO(data))
+        except Exception as e:
+            raise ValueError("Not a supported image") from e
+        if img.width * img.height > settings.max_image_pixels:
+            raise ValueError(f"Image is {img.width}×{img.height} px; the limit is {settings.max_image_pixels:,} pixels")
+
+
 def parse_docx(data: bytes) -> ParsedDocument:
     if not DOCX_AVAILABLE:
         raise RuntimeError("python-docx is not installed")

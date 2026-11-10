@@ -122,6 +122,8 @@ export interface DocumentSummary {
   chunk_count?: number | null;
   quality_score?: number | null;
   pii_count?: number | null;
+  status?: string | null;
+  status_detail?: string | null;
 }
 
 /** `GET /documents/{id}` and `analysis` of the upload response. */
@@ -145,6 +147,9 @@ export interface UploadResponse {
   message: string;
   document_id: number;
   filename: string;
+  /** queued | processing | completed | failed (asynchronous ingestion, v2.2) */
+  status?: string | null;
+  status_url?: string | null;
   characters_extracted?: number | null;
   preview?: string | null;
   analysis?: DocumentDetail | null;
@@ -456,4 +461,21 @@ export interface VisionAnalysis {
 
 export interface ApiErrorBody {
   detail?: string | Array<{ msg?: string; loc?: Array<string | number> }>;
+}
+
+/** Processing state of an uploaded document (GET /documents/{id}/status). */
+export interface DocumentStatus {
+  document_id: number;
+  filename: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed' | string;
+  detail?: string | null;
+  job?: {
+    id: number;
+    state: 'queued' | 'running' | 'succeeded' | 'dead' | 'cancelled' | string;
+    attempts: number;
+    max_attempts: number;
+    progress?: { stage?: string; detail?: string } | null;
+    last_error?: string | null;
+    updated_at?: string | null;
+  } | null;
 }

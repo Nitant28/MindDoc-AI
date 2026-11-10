@@ -1,1 +1,2 @@
 reportlab>=4.0   # BSD; StatementBench PDF generator only (not shipped)
+pgserver>=0.1.4   # Apache-2.0; local PostgreSQL + pgvector for tests (TEST_DB=postgres), dev only

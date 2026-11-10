@@ -11,7 +11,8 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.api import auth, chat, documents, intel, vision
 from app.core.config import settings
-from app.database.models import Document, SessionLocal, create_tables, init_default_tenant
+from app.database.models import Document, SessionLocal, Tenant, create_tables, init_default_tenant
+from app.database.tenancy import set_tenant
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stdout)
 logger = logging.getLogger("minddoc")
@@ -28,13 +29,23 @@ def _background_warmup():
         embeddings.active_model_name()
         embeddings.load_reranker_blocking()
         verifier.download_nli_model_in_background()
+        n = 0
+        tenant_ids = []
         db = SessionLocal()
         try:
-            n = sum(backfill_insights(db, d) for d in db.query(Document).filter(Document.doc_type.is_(None)).all())
-            if n:
-                logger.info("Backfilled v2 insights for %d legacy documents", n)
+            tenant_ids = [t for (t,) in db.query(Tenant.id).all()]
         finally:
             db.close()
+        for tid in tenant_ids:  # row-level security: work tenant by tenant, never across tenants
+            db = SessionLocal()
+            try:
+                set_tenant(db, tid)
+                n += sum(backfill_insights(db, d) for d in db.query(Document).filter(
+                    Document.tenant_id == tid, Document.doc_type.is_(None), Document.status == "completed").all())
+            finally:
+                db.close()
+        if n:
+            logger.info("Backfilled v2 insights for %d legacy documents", n)
     except Exception as e:
         logger.warning("warm-up failed: %s", e)
 
@@ -50,7 +61,15 @@ async def lifespan(app: FastAPI):
         db.close()
     if os.getenv("MINDDOC_SKIP_WARMUP") != "1":
         threading.Thread(target=_background_warmup, daemon=True).start()
+    worker = None
+    if settings.embedded_worker:  # demo hosts (ADR-0013); production runs `python -m app.worker` instead
+        from app.jobs.worker import Worker
+        worker = Worker(threads=settings.worker_threads,
+                        poll_seconds=float(os.getenv("MINDDOC_WORKER_POLL", "2"))).start()
+    app.state.worker = worker
     yield
+    if worker is not None:
+        worker.stop(timeout=10)
     logger.info("MindDoc AI shutting down")
 
 

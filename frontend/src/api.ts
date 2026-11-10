@@ -29,6 +29,7 @@ import type {
   UpdateEmailBody,
   UploadResponse,
   VisionAnalysis,
+  DocumentStatus,
 } from './types';
 
 const envUrl = import.meta.env.VITE_API_URL?.trim();
@@ -146,6 +147,8 @@ export const documentsApi = {
       })
       .then((r) => r.data);
   },
+  status: (id: number) => api.get<DocumentStatus>(`/documents/${id}/status`).then((r) => r.data),
+  reprocess: (id: number) => api.post<DocumentStatus>(`/documents/${id}/reprocess`).then((r) => r.data),
   remove: (id: number) => api.delete<MessageResponse>(`/documents/delete/${id}`).then((r) => r.data),
   rename: (id: number, filename: string) =>
     api.put<MessageResponse>(`/documents/edit/${id}`, null, { params: { filename } }).then((r) => r.data),
