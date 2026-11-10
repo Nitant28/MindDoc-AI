@@ -191,9 +191,13 @@ plan → retrieve (hybrid, multi-query, HyDE) → graph expand → rerank → MM
 - **Abstention:** if the model says the sources don't cover the question, or confidence is < 0.25, the answer is
   marked `abstained` — refusing to bluff is a feature.
 
-### 3.4 Calibrated confidence
-- `0.4·retrieval_strength + 0.4·support_ratio + 0.2·citation_coverage`, capped when the model says "not found".
-- Logged per query (`QueryLog`) → average confidence on the Dashboard. **Code:** `rag._confidence`.
+### 3.4 Evidence score (uncalibrated)
+- `0.4·retrieval_strength + 0.4·support_ratio + 0.2·citation_coverage`, capped at 0.35 when the model says "not
+  found". `support_ratio` comes from the claim verifier (§3.3).
+- It is a weighted heuristic, **not a probability**: it has never been fitted to labelled outcomes. Calibration
+  (isotonic/Platt with an ECE report) is backlog Phase 5.
+- Logged per query (`QueryLog.confidence`), shown as "Evidence score" and averaged on the Dashboard.
+  **Code:** `rag._confidence`.
 
 ### 3.5 Knowledge graph / Ontology + GraphRAG-lite (`knowledge.py`)
 - **Ontology** (Palantir's core idea): turn documents into typed *objects* (PERSON, ORG, MONEY, DATE, LAW…) and
@@ -210,7 +214,8 @@ plan → retrieve (hybrid, multi-query, HyDE) → graph expand → rerank → MM
 
 ### 3.7 Guardrails & Responsible AI (`guardrails.py`)
 - **PII detection:** emails, phones, credit cards (validated with the **Luhn checksum**), SSN, IBAN, IPs, India
-  PAN/Aadhaar → counts per document, `redact()` available.
+  PAN/Aadhaar → counts per document. `guardrails.redact()` exists, but nothing in the pipeline calls it yet: PII
+  is **detected and reported, not redacted**, and stored text and answers still contain it.
 - **Indirect prompt injection (OWASP LLM01):** a malicious PDF can contain "ignore previous instructions…".
   We flag it at upload, neutralise instruction-like spans in retrieved context, and the system prompt declares
   source text as untrusted data.

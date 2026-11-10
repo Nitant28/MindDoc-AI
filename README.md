@@ -2,11 +2,11 @@
 
 **Glass-box document intelligence.** Upload contracts, scans, invoices, papers or photos of documents. MindDoc
 *sees* them (computer vision + OCR), *understands* them (ML analytics + a knowledge graph), and *answers* questions
-with evidence you can check: numbered citations highlighted on the original page, a per-claim support check,
-a calibrated confidence score, and a full reasoning trace.
+with evidence you can check: numbered citations highlighted on the original page, a per-sentence claim check
+(numbers, dates, IDs, parties against the cited source), an evidence score (uncalibrated) and a full reasoning trace.
 
-It runs with Claude, OpenAI/Azure, Gemini, NVIDIA NIM, DeepSeek or a local Ollama model. It also runs **fully
-offline**, with no LLM at all.
+It runs with Claude, OpenAI/Azure, OpenRouter, Gemini, NVIDIA NIM, DeepSeek or a local Ollama model. It also runs
+**fully offline**, with no LLM at all.
 
 ---
 
@@ -71,6 +71,7 @@ The fixes are planned in `docs/IMPLEMENTATION_BACKLOG.md`.
 | [docs/strategy/](docs/strategy/) | market selection, competitive analysis, product differentiation |
 | [docs/IMPLEMENTATION_BACKLOG.md](docs/IMPLEMENTATION_BACKLOG.md) | prioritised build order with exit criteria |
 | [docs/research/](docs/research/) | industry landscape, technology evaluation, papers, research gaps, benchmark datasets |
+| [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) | **start here**: complete context (built vs planned, every concept and where it lives, measured results, gaps, how to build next) |
 | [benchmarks/reports/HALLUCINATION_BENCHMARK.md](benchmarks/reports/HALLUCINATION_BENCHMARK.md) | claim verifier v1 vs v2: catch and false-flag rates, by error type, with caveats |
 | [docs/MANUAL.md](docs/MANUAL.md) | install, configure providers, use every screen, troubleshooting |
 | [docs/CONCEPTS.md](docs/CONCEPTS.md) | every CV / ML / GenAI concept explained, with file pointers and interview lines |

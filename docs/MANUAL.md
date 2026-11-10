@@ -37,7 +37,7 @@ MindDoc works in three tiers — pick per your privacy and budget needs:
 |---|---|---|
 | Offline / zero-egress | nothing | extractive answers with citations, all CV/ML features, graph (rule-based) |
 | Local LLM | install Ollama, `ollama pull llama3.1`, `ollama serve` | generative answers, nothing leaves the machine |
-| Cloud LLM | one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `DEEPSEEK_API_KEY` | best quality, deep mode, LLM graph extraction, image captions, LLM-judge |
+| Cloud LLM | one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `NVIDIA_API_KEY`, `DEEPSEEK_API_KEY` | best quality, deep mode, LLM graph extraction, image captions, LLM-judge |
 
 `LLM_PROVIDER_ORDER` sets priority; a failing provider is skipped for 60 seconds automatically.
 Check what's live on the **System** page or `GET /api/intel/capabilities`.
@@ -45,7 +45,7 @@ Check what's live on the **System** page or `GET /api/intel/capabilities`.
 ## 3. Using the app
 
 ### Dashboard
-KPIs for your workspace (documents, chunks, entities, relations, queries, average confidence and latency, PII found),
+KPIs for your workspace (documents, chunks, entities, relations, queries, average evidence score and latency, PII found),
 document-type breakdown, automatically discovered **topic clusters**, recent questions and the document list.
 
 ### Upload
@@ -91,10 +91,10 @@ Live capability status (providers, embeddings, reranker, OpenCV, OCR engines, vi
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `JWT_SECRET` | random per start | **set this** or users are logged out on every restart |
-| `DATABASE_URL` | `sqlite:///./minddoc.db` | any SQLAlchemy URL (Postgres recommended in production) |
+| `JWT_SECRET` | random per start | **set this** or users are logged out on every restart (known default values are rejected) |
+| `DATABASE_URL` | `sqlite:///./minddoc.db` (Docker: `sqlite:////data/minddoc.db`) | any SQLAlchemy URL; Postgres is the planned production store (ADR-0002) |
 | `CORS_ORIGINS` | localhost:5173/5174 | comma-separated allowed origins |
-| `LLM_PROVIDER_ORDER` | `anthropic,openai,gemini,deepseek,ollama` | provider priority (`nvidia` is appended if its key is set) |
+| `LLM_PROVIDER_ORDER` | `anthropic,openai,openrouter,gemini,deepseek,ollama` | provider priority (`nvidia` is appended if its key is set) |
 | `*_API_KEY`, `*_MODEL` | – | per-provider credentials and model ids |
 | `OPENAI_BASE_URL` | OpenAI | point at Azure OpenAI / vLLM / LM Studio / Groq |
 | `EMBEDDING_MODEL` | MiniLM-L6-v2 | any sentence-transformers model (vectors auto-migrate) |
@@ -106,6 +106,10 @@ Live capability status (providers, embeddings, reranker, OpenCV, OCR engines, vi
 | `TESSERACT_CMD` | – | path to `tesseract.exe` on Windows |
 | `ENABLE_VISION_CAPTIONS` | `true` | describe images with a vision LLM |
 | `MAX_UPLOAD_MB` | 50 | upload size limit |
+| `MAX_PDF_PAGES` / `MAX_IMAGE_PIXELS` / `MAX_DOCX_UNCOMPRESSED_MB` | 500 / 40,000,000 / 200 | parsing caps (reject with HTTP 400) |
+| `RATE_UPLOAD_PER_MIN` / `RATE_QUERY_PER_MIN` / `RATE_EVAL_PER_MIN` | 30 / 60 / 5 | per-user limits (HTTP 429); per process, not shared between replicas |
+| `ENABLE_NLI_VERIFIER` | `false` | add the LettuceDetect NLI model to the claim check (needs ML extras; downloads ~275 MB) |
+| `VERIFIER_NLI_THRESHOLD` | 0.95 | NLI probability that triggers a "check wording" flag |
 
 ## 5. Troubleshooting
 
@@ -116,7 +120,8 @@ Live capability status (providers, embeddings, reranker, OpenCV, OCR engines, vi
 | First question is slow | embedding/reranker models load once (~5–10 s); warm-up runs in the background at startup |
 | Logged out after restart | set `JWT_SECRET` in `.env` |
 | Old documents lack insights | opened documents are backfilled automatically; startup backfills all legacy docs in the background |
-| `429 Too many attempts` | auth rate limit (10/min per IP); wait a minute |
+| `429 Too many attempts` / `Rate limit reached` | auth: 10/min per IP; upload 30, questions 60, evaluation 5 per minute per user — wait a minute |
+| Upload rejected with "limit" in the message | the file exceeds a page, pixel or size cap; split it or raise the cap in `.env` |
 
 ## 6. Upgrading from v1
 

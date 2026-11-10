@@ -1,4 +1,7 @@
-# MindDoc AI — Architecture
+# MindDoc AI — Architecture (current code, v2.1.0)
+
+> This describes what is running now. The target architecture (Postgres, claim-centric evidence model, workers,
+> investigation engine) is a proposal in `architecture/SYSTEM_ARCHITECTURE.md` and the ADRs in `adr/`.
 
 ## 1. System overview
 
@@ -19,9 +22,9 @@ flowchart LR
   subgraph Query["Glass-box RAG (ai/rag.py)"]
     PLAN[plan: rewrite · decompose · HyDE] --> RET[hybrid BM25+dense → RRF]
     RET --> GX[GraphRAG expansion] --> RR[cross-encoder rerank → MMR]
-    RR --> GEN[cited generation · streaming] --> VER[groundedness · LLM judge] --> CONF[confidence]
+    RR --> GEN[cited generation · streaming] --> VER[claim verifier v2 · optional LLM judge] --> CONF[evidence score]
   end
-  GW[(LLM gateway: Claude · OpenAI · Gemini · NVIDIA NIM · DeepSeek · Ollama)]
+  GW[(LLM gateway: Claude · OpenAI · OpenRouter · Gemini · NVIDIA NIM · DeepSeek · Ollama)]
   DB[(SQL: documents · chunks+vectors · entities · relations · sessions · query_logs)]
   IDX[[in-memory workspace index cache]]
 
@@ -105,17 +108,30 @@ invalidated (rebuilt lazily on next query).
 
 ## 6. Security posture
 
-- PBKDF2-SHA256 (310k iterations, constant-time compare; legacy hashes still verify), JWT with expiry,
-  random ephemeral secret if `JWT_SECRET` is unset, auth rate limiting (10/min/IP).
+- PBKDF2-SHA256 (310k iterations, constant-time compare; legacy hashes still verify), JWT HS256 with expiry,
+  random ephemeral secret if `JWT_SECRET` is unset or a known default.
+- Rate limits (in-memory, per process): auth 10/min per IP; upload 30, query 60 and eval 5 per minute per user
+  (HTTP 429).
 - Workspace isolation enforced in every query path (documents, chat scope, graph, analytics) — covered by tests.
-- Upload limits (size, pixel count), extension allow-list, path-traversal-safe SPA file serving.
-- Prompt-injection scanning at ingest + context sanitisation at query time; PII surfaced per document.
-- Known gaps (roadmap): legacy v1 users share the `default` workspace; no RBAC/SSO yet; secrets via env only.
+- **Upload limits:**
+  - size (50 MB)
+  - PDF pages (500)
+  - image pixels (40 MP)
+  - DOCX inflated size (200 MB) and part count, which stops zip bombs
+  - OCR render zoom capped by the pixel limit
+- Extension allow-list, and path-traversal-safe SPA file serving.
+- Prompt-injection scanning at ingest + context sanitisation at query time; PII detected (not redacted) per document.
+- **Known gaps (see `audit/CURRENT_STATE_AUDIT.md`):**
+  - Legacy v1 users share the `default` workspace.
+  - No RBAC or SSO.
+  - Rate limits aren't shared across replicas.
+  - Secrets come from the environment only.
 
-## 7. Scaling path
+## 7. Scaling path (decided in the ADRs; not built yet)
 
-1. Postgres + pgvector (store vectors natively, ANN index), Alembic migrations.
-2. Background job queue (RQ/Celery/Arq) for ingestion so uploads return instantly with progress events.
-3. GPU inference: NVIDIA NIM / Triton for embeddings + rerankers + OCR; TensorRT-optimised models on Jetson for edge.
-4. Object storage for originals (S3/Azure Blob/GCS) + page thumbnails for visual citations.
-5. Horizontal API replicas (stateless; index cache becomes a shared vector DB).
+1. PostgreSQL 18 + pgvector + Alembic (ADR-0002).
+2. Job table + transactional outbox + worker process for ingestion, so uploads return immediately; Kafka only when
+   its trigger is met (ADR-0003).
+3. Content-addressed blob store for originals (local FS first, S3-compatible later).
+4. Docling + PaddleOCR + Tesseract parsing stack; PyMuPDF (AGPL) replaced (ADR-0006).
+5. Horizontal API replicas once the index and rate limits live in Postgres instead of process memory.
