@@ -1,0 +1,1 @@
+reportlab>=4.0   # BSD; StatementBench PDF generator only (not shipped)
