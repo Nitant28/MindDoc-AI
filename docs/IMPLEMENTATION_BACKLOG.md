@@ -69,6 +69,20 @@ property-based cross-tenant tests pass on Postgres + RLS; lineage API returns So
 
 ## Phase 5 — Verifier v2 + retrieval on Postgres (≈2–3 weeks)
 
+**Status (2026-11-10, started early, ahead of Phases 1–4):**
+- **Done:**
+  - Claim verifier v2 (`app/ai/verifier.py`): red value checks plus amber wording heuristics.
+  - Optional LettuceDetect NLI, off by default.
+  - Hallucination test set v0 (146 claims, dev/test) and scorer (`benchmarks/hallucination`).
+- **Held-out test result:** catches 68% of planted errors vs 20% for v1, and wrongly flags 11% of correct
+  sentences vs 14% (`benchmarks/reports/HALLUCINATION_BENCHMARK.md`).
+- **Open:**
+  - recomputation (percentages, from→to arithmetic)
+  - table-column semantics
+  - a fresh independent test set and RAGTruth
+  - calibration
+  - item 3 (retrieval on Postgres)
+
 1. Claim verification: numeric/date/party/negation consistency checks against cited cells and claims, plus an NLI
    cross-encoder (licence-checked), plus recomputation for numbers.
 2. Calibrated evidence score (isotonic/Platt on labelled data) — show ECE; abstain below threshold.

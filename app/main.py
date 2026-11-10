@@ -16,16 +16,18 @@ from app.database.models import Document, SessionLocal, create_tables, init_defa
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stdout)
 logger = logging.getLogger("minddoc")
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 
 def _background_warmup():
     """Load models and backfill v2 analytics for legacy documents without blocking startup."""
     try:
+        from app.ai import verifier
         from app.ml import embeddings
         from app.services.ingestion import backfill_insights
         embeddings.active_model_name()
         embeddings.load_reranker_blocking()
+        verifier.download_nli_model_in_background()
         db = SessionLocal()
         try:
             n = sum(backfill_insights(db, d) for d in db.query(Document).filter(Document.doc_type.is_(None)).all())

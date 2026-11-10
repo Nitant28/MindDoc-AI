@@ -16,7 +16,7 @@ offline**, with no LLM at all.
 |---|---|---|
 | 👁 **Computer Vision** | scanned-page OCR, quality gating, layout | variance-of-Laplacian blur score, NL-means denoise, CLAHE, deskew (minAreaRect), adaptive threshold, morphological text/table/figure detection, Tesseract + EasyOCR (CRAFT + CRNN) with confidence, vision-LLM captions, **pixel-level citation highlights** |
 | 📈 **Machine Learning** | search, analytics, evaluation | BM25, dense embeddings (MiniLM), Reciprocal Rank Fusion, cross-encoder reranking, MMR, zero-shot classification, KeyBERT-style keyphrases, K-Means + c-TF-IDF topics, extractive summaries, readability, self-supervised Hit@5/MRR with ablations |
-| ✨ **Generative AI** | grounded answers and extraction | agentic RAG (rewrite → decompose → HyDE → retrieve → GraphRAG → rerank → generate → verify), streamed cited answers, claim-level groundedness + LLM-as-judge, abstention, calibrated confidence, schema-driven JSON extraction, GraphRAG-style entity + relation extraction, multi-provider gateway with circuit breaker |
+| ✨ **Generative AI** | grounded answers and extraction | agentic RAG (rewrite → decompose → HyDE → retrieve → GraphRAG → rerank → generate → verify), streamed cited answers, claim verifier (number/date/ID/party consistency + wording heuristics, benchmarked) + LLM-as-judge, abstention, evidence score, schema-driven JSON extraction, GraphRAG-style entity + relation extraction, multi-provider gateway with circuit breaker |
 | 🛡 **Responsible AI** | trust and safety | PII detection (Luhn-validated cards, SSN, IBAN, PAN/Aadhaar…), indirect prompt-injection detection + context sanitisation, per-user workspace isolation, audit trail with prompt hashes, rate-limited auth, PBKDF2-310k |
 
 ## Quick start
@@ -48,10 +48,17 @@ flowchart LR
 
 ## Current limitations (from the independent audit)
 
-Read `docs/audit/CURRENT_STATE_AUDIT.md` before demoing. In short: the claim verifier is similarity-based and does not
-catch wrong numbers, swapped parties or negation; confidence is an uncalibrated weighted score; PII is detected but not
-redacted; prompt-injection defence is pattern-based; ingestion is synchronous; PyMuPDF is AGPL-3.0; the deployed site
-runs an older line of code (`origin/main`). The fixes are planned in `docs/IMPLEMENTATION_BACKLOG.md`.
+Read `docs/audit/CURRENT_STATE_AUDIT.md` before demoing. In short:
+- The claim verifier (v2) catches wrong numbers, scales, dates, periods and party names. It only hints at flipped
+  negation or swapped parties. On a small held-out test set it caught 68% of planted errors vs 20% for v1
+  (`benchmarks/reports/HALLUCINATION_BENCHMARK.md`).
+- Confidence is an uncalibrated weighted score.
+- PII is detected but not redacted.
+- Prompt-injection defence is pattern-based.
+- Ingestion is synchronous.
+- PyMuPDF is AGPL-3.0.
+
+The fixes are planned in `docs/IMPLEMENTATION_BACKLOG.md`.
 
 ## Documentation
 
@@ -64,6 +71,7 @@ runs an older line of code (`origin/main`). The fixes are planned in `docs/IMPLE
 | [docs/strategy/](docs/strategy/) | market selection, competitive analysis, product differentiation |
 | [docs/IMPLEMENTATION_BACKLOG.md](docs/IMPLEMENTATION_BACKLOG.md) | prioritised build order with exit criteria |
 | [docs/research/](docs/research/) | industry landscape, technology evaluation, papers, research gaps, benchmark datasets |
+| [benchmarks/reports/HALLUCINATION_BENCHMARK.md](benchmarks/reports/HALLUCINATION_BENCHMARK.md) | claim verifier v1 vs v2: catch and false-flag rates, by error type, with caveats |
 | [docs/MANUAL.md](docs/MANUAL.md) | install, configure providers, use every screen, troubleshooting |
 | [docs/CONCEPTS.md](docs/CONCEPTS.md) | every CV / ML / GenAI concept explained, with file pointers and interview lines |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | system design, data model, design decisions, security, scaling path |

@@ -114,9 +114,22 @@ function TraceTimeline({ steps, subQueries }: { steps: TraceStep[]; subQueries: 
 }
 
 function claimTone(c: ClaimCheck): Tone {
-  if (c.supported) return 'success';
-  return isNum(c.score) && c.score >= 0.35 ? 'warning' : 'danger';
+  if (!c.supported) return 'danger';
+  return c.needs_review ? 'warning' : 'success';
 }
+
+const ISSUE_LABEL: Record<string, string> = {
+  number: 'Number',
+  date: 'Date',
+  identifier: 'ID',
+  frequency: 'Period',
+  negation: 'Negation',
+  direction: 'Direction',
+  party: 'Party',
+  roles: 'Roles',
+  unsupported_content: 'Not in source',
+  nli: 'NLI model',
+};
 
 function ClaimList({ claims, onCitation }: { claims: ClaimCheck[]; onCitation: (n: number) => void }) {
   return (
@@ -131,15 +144,34 @@ function ClaimList({ claims, onCitation }: { claims: ClaimCheck[]; onCitation: (
                 tone === 'success' ? 'bg-emerald-500/15 text-emerald-500' : tone === 'warning' ? 'bg-amber-500/15 text-amber-500' : 'bg-rose-500/15 text-rose-500',
               )}
             >
-              <Icon name={c.supported ? 'check' : 'alert'} className="h-2.5 w-2.5" strokeWidth={2.5} />
-              <span className="sr-only">{c.supported ? 'Supported' : 'Not supported'}</span>
+              <Icon name={tone === 'success' ? 'check' : 'alert'} className="h-2.5 w-2.5" strokeWidth={2.5} />
+              <span className="sr-only">{!c.supported ? 'Contradicts the source' : c.needs_review ? 'Check wording' : 'Consistent'}</span>
             </span>
             <div className="min-w-0 flex-1">
-              <p className={cx('text-xs leading-relaxed', c.supported ? 'text-fg/90' : 'text-fg')}>{c.text}</p>
+              <p className={cx('text-xs leading-relaxed', tone === 'success' ? 'text-fg/90' : 'text-fg')}>{c.text}</p>
+              {tone !== 'success' && (c.issues ?? []).length > 0 ? (
+                <ul className="mt-1 space-y-0.5">
+                  {(c.issues ?? []).map((iss, j) => (
+                    <li
+                      key={j}
+                      className={cx(
+                        'text-[11px] leading-snug',
+                        iss.severity === 'review' ? 'text-amber-700 dark:text-amber-300' : 'text-rose-700 dark:text-rose-300',
+                      )}
+                    >
+                      <span className="font-semibold">
+                        {iss.severity === 'review' ? 'Check wording · ' : ''}
+                        {ISSUE_LABEL[iss.kind] ?? iss.kind}:
+                      </span>{' '}
+                      {iss.detail}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 {isNum(c.score) ? (
-                  <Badge tone={tone} title="Support score">
-                    {pct(c.score)}
+                  <Badge tone={c.supported ? 'neutral' : tone} title="Similarity to the best-matching source sentence (relevance, not correctness)">
+                    {pct(c.score)} similar
                   </Badge>
                 ) : null}
                 {(c.sources ?? []).map((n) => (
@@ -225,13 +257,17 @@ export default function AssistantMessage({ message, question, onRetry }: Assista
     else toast.error('Copy failed');
   };
 
-  // Evidence-overlap badge. Honest label: the backend check is similarity-based and does not catch wrong numbers,
-  // swapped parties or negation (see docs/audit/CURRENT_STATE_AUDIT.md) — it is not a verification.
+  // Claim-check badge. The v2.1 verifier compares numbers, dates, IDs, periods and party names with the cited
+  // source (red = contradicts); negation/direction/role heuristics only ask for review (amber). Passing means "no
+  // inconsistency found", not "verified true" — measured rates are in benchmarks/reports/HALLUCINATION_BENCHMARK.md.
+  const checks = g?.checks ?? [];
+  const checkList = checks.length ? checks.join(', ') : 'similarity';
+  const reviewCount = g?.review ?? claims.filter((c) => c.supported && c.needs_review).length;
   let groundBadge: { tone: Tone; label: string } | null = null;
-  if (meta?.grounded === true) groundBadge = { tone: 'success', label: 'High evidence overlap' };
+  if (meta?.grounded === true) groundBadge = { tone: 'success', label: 'No inconsistencies found' };
   else if (meta?.grounded === false) {
     const r = g && g.total > 0 ? g.supported / g.total : 0;
-    groundBadge = { tone: r >= 0.5 ? 'warning' : 'danger', label: r > 0 ? 'Partial evidence overlap' : 'Low evidence overlap' };
+    groundBadge = { tone: r >= 0.5 ? 'warning' : 'danger', label: r > 0 ? 'Some claims not supported' : 'Claims not supported' };
   }
   const groundRatio = g && g.total > 0 ? ` ${g.supported}/${g.total}` : '';
   const claimsExpanded = claimsOpen ?? (claims.some((c) => !c.supported) || (claims.length === 0 && unsupported.length > 0));
@@ -303,7 +339,7 @@ export default function AssistantMessage({ message, question, onRetry }: Assista
           <>
             {(isNum(meta.confidence) || groundBadge || meta.abstained) && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span title="Uncalibrated score combining retrieval strength and evidence overlap — not a probability of correctness.">
+                <span title="Uncalibrated score combining retrieval strength and the claim check — not a probability of correctness.">
                   <ConfidenceBadge value={meta.confidence} label="Evidence score" />
                 </span>
                 {groundBadge ? (
@@ -312,8 +348,8 @@ export default function AssistantMessage({ message, question, onRetry }: Assista
                     icon={groundBadge.tone === 'success' ? 'check' : 'alert'}
                     title={
                       unsupported.length
-                        ? `Low overlap: ${unsupported.join(' | ')}`
-                        : 'Each sentence overlaps with a cited passage (similarity check; it does not detect wrong numbers or negation)'
+                        ? `Not supported: ${unsupported.join(' | ')}`
+                        : `Every sentence passed the checks against its cited source (${checkList}). Heuristic checks: no inconsistency found, not proof of truth.`
                     }
                   >
                     {groundBadge.label}
@@ -331,9 +367,13 @@ export default function AssistantMessage({ message, question, onRetry }: Assista
 
             {claims.length > 0 || unsupported.length > 0 ? (
               <Section
-                title="Claim overlap check (similarity-based)"
+                title={`Claim check (${checkList})`}
                 icon="check"
-                count={claims.length ? `${claims.filter((c) => c.supported).length}/${claims.length} overlap` : `${unsupported.length} low overlap`}
+                count={
+                  claims.length
+                    ? `${claims.filter((c) => c.supported).length}/${claims.length} consistent${reviewCount ? ` · ${reviewCount} to check` : ''}`
+                    : `${unsupported.length} not supported`
+                }
                 open={claimsExpanded}
                 onToggle={() => setClaimsOpen(!claimsExpanded)}
               >

@@ -184,11 +184,26 @@ export interface Citation {
   score?: number | null;
 }
 
+export interface ClaimIssue {
+  /** number | date | identifier | frequency | party | unsupported_content | negation | direction | roles | nli */
+  kind: string;
+  detail: string;
+  /** contradiction = value check failed (sentence not supported); review = wording heuristic, ask a human. */
+  severity?: 'contradiction' | 'review';
+}
+
 export interface ClaimCheck {
   text: string;
   supported: boolean;
+  /** Similarity to the best-matching source sentence (relevance only, not correctness). */
   score?: number | null;
   sources?: number[] | null;
+  /** v2.1 verifier: why the sentence was not supported, or what to check. */
+  issues?: ClaimIssue[] | null;
+  /** Supported by the value checks, but a wording heuristic asks a human to check it. */
+  needs_review?: boolean | null;
+  /** NLI model's max "unsupported" probability for the sentence, when the model ran. */
+  nli?: number | null;
 }
 
 export interface Groundedness {
@@ -197,6 +212,12 @@ export interface Groundedness {
   unsupported: string[];
   /** v2.1: claim-level verification. */
   claims?: ClaimCheck[] | null;
+  /** Value checks that decide "supported", e.g. ["numbers", "dates", …]. */
+  checks?: string[] | null;
+  /** Wording heuristics that only ask for review, e.g. ["negation", "direction", "roles"]. */
+  review_checks?: string[] | null;
+  /** Number of supported sentences flagged for review. */
+  review?: number | null;
 }
 
 export interface TraceStep {

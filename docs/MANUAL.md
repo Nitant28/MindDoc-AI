@@ -63,9 +63,14 @@ Summary, type + confidence, reading stats, weighted keywords, extracted entities
 - **Fast mode:** single hybrid retrieval pass, lowest latency. **Deep mode:** query planning, sub-questions, HyDE,
   LLM fact-check — use for complex or multi-part questions.
 - Every answer shows **citations** (click `[n]` to jump to the source snippet with file and page), an **evidence
-  score** (uncalibrated — not a probability), an **evidence-overlap** badge listing low-overlap sentences, and the full
-  **reasoning trace**. The overlap check is similarity-based: it does **not** catch wrong numbers, swapped parties or
-  negation, so always open the cited source for consequential facts.
+  score** (uncalibrated — not a probability), a **claim check** and the full **reasoning trace**.
+- **Claim check:** each sentence is compared with the passage it cites.
+  - **Red, "contradicts source":** a number, amount scale (lakh/crore), date, ID, payment period or party name
+    doesn't match the source, or the sentence isn't in the source. The reason is shown under the sentence.
+  - **Amber, "check wording":** a heuristic thinks negation, direction (rose/fell, credit/debit) or who-did-what
+    may differ. These hints are often wrong (43% of correct sentences got one in testing), so read the source.
+  - **Green:** no inconsistency found, which is not proof. On the benchmark the red tier caught 68% of planted
+    errors. Always open the cited source for consequential facts.
 - Follow-up questions keep context ("what about its renewal terms?").
 - Ask "summarise this document" to get coverage-based summaries instead of similarity search.
 

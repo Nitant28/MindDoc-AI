@@ -300,8 +300,8 @@ export default function System() {
                   <th scope="col" className="px-3 py-2.5 font-medium">
                     Evidence score
                   </th>
-                  <th scope="col" className="px-3 py-2.5 font-medium">
-                    Overlap
+                  <th scope="col" className="px-3 py-2.5 font-medium" title="Did every sentence pass the claim check? Queries before v2.1 used the older similarity-only check.">
+                    Claim check
                   </th>
                   <th scope="col" className="px-3 py-2.5 text-right font-medium">
                     Citations

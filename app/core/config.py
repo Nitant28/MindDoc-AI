@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     enable_reranker: bool = True
+    # Claim verifier v2: value checks and wording heuristics always run (no models needed). The optional NLI token
+    # classifier (LettuceDetect weights, MIT; needs the ML extras, downloads ~275 MB on first start) is off by
+    # default: on the held-out test split of benchmarks/hallucination it caught no extra errors and added false flags.
+    enable_nli_verifier: bool = False
+    verifier_nli_model: str = "KRLabsOrg/tinylettuce-ettin-68m-en"
+    # Flag a sentence when the model's max "unsupported" token probability reaches this. Chosen on the dev split of
+    # benchmarks/hallucination (lower values added many false flags on correct paraphrases).
+    verifier_nli_threshold: float = 0.95
     chunk_size: int = 900
     chunk_overlap: int = 150
     retrieval_top_k: int = 8

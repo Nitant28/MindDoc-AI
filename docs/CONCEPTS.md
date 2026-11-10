@@ -158,16 +158,36 @@ plan → retrieve (hybrid, multi-query, HyDE) → graph expand → rerank → MM
 - **Citations:** sources are numbered; the system prompt requires `[n]` after every factual sentence.
 - **Deep vs Fast mode:** deep = planner + HyDE + LLM judge (slower, better); fast = single hybrid pass.
 
-### 3.3 Groundedness verification (hallucination detection)
-- Split the answer into claims → for each claim, compare with the sources it cites using embedding similarity and
-  lexical overlap → `supported / total`. In deep mode an **LLM-as-judge** gives a second faithfulness score.
-- Unsupported sentences are returned to the UI and highlighted. **Code:** `rag._verify`.
-- **Known weakness (audit, 2026-11-10):** similarity and word overlap cannot see that "$96,000" contradicts "$48,000",
-  that payer and payee were swapped, or that a sentence was negated — all such planted errors were marked "supported".
-  Real verification needs entity/number consistency checks, an NLI model and recomputation (backlog Phase 5). Know this
-  limitation before you present the feature.
-
-- Each claim is returned with `supported`, `score` and its `sources`, so the UI can badge sentences green/red.
+### 3.3 Claim verification (hallucination detection) — verifier v2
+- Split the answer into sentences; check each against the passages it cites. **Code:** `app/ai/verifier.py`,
+  called from `rag._verify`. In deep mode an **LLM-as-judge** gives a second faithfulness score.
+- **Value checks (red, decide "not supported")** — concrete values must match the source:
+  - **numbers:** ₹/Rs/INR/$ amounts, Indian digit grouping, lakh/crore/million scales, number words, percentages.
+    "About" allows 5%. Sums and differences of two source figures, and intervals between source dates, count as
+    derived.
+  - **dates:** full date, day-month, month-year, FY ranges, years; D/M/Y with M/D/Y as an alternative reading.
+  - **identifiers:** account numbers, DINs, invoice/PO/policy numbers must match exactly.
+  - **periods:** the frequency word next to a number (per month vs per annum) must match the source's.
+  - **party names:** every named organisation or person must appear in the source.
+  - **relevance:** the sentence must be similar to some source sentence, or most of its content words must
+    appear in the source.
+- **Wording heuristics (amber, "check wording", don't count against the answer):**
+  - **negation:** the parity of negation cues is compared with the best-matching source sentence, counting only
+    cues whose scope touches the other text's words.
+  - **direction words:** credit/debit, rose/fell, above/below, before/after.
+  - **party roles:** by/from → source, to → recipient, plus the grammatical subject.
+- **Optional NLI model** (LettuceDetect tiny, MIT; `ENABLE_NLI_VERIFIER=true`): one token-classification pass
+  over the whole answer. Off by default because it didn't help on the held-out test set.
+- **Measured (held-out test split, `benchmarks/reports/HALLUCINATION_BENCHMARK.md`):**
+  - **v1 similarity check:** caught 20% of planted errors and wrongly flagged 14% of correct sentences.
+  - **v2 red tier:** caught 68% and wrongly flagged 11%. Every wrong number, scale, date, period and party name
+    was caught.
+  - **Including amber:** caught 91%, but flagged 43% of correct sentences.
+- **Still weak:** flipped negation, swapped payer/payee and rose/fell are only amber hints. Percentages computed
+  from two figures are wrongly flagged. Passing means "no inconsistency found", not "verified true". The set is
+  small, synthetic and written by the verifier's author.
+- Each claim is returned with `supported`, `needs_review`, `issues` (kind, detail, severity), `score` (similarity
+  to the best source sentence) and its `sources`.
 - **Abstention:** if the model says the sources don't cover the question, or confidence is < 0.25, the answer is
   marked `abstained` — refusing to bluff is a feature.
 

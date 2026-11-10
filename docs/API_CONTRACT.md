@@ -190,11 +190,19 @@ Auth is a bearer header, so fetch with axios `responseType: 'blob'` and show via
 404 when the original isn't available (non-PDF, or uploaded before v2.1) — hide the "View on page" button then.
 Response header `X-Highlight-Boxes: <n>` = number of highlighted regions (0 = page shown without highlight).
 
-### Claim-level verification (added to `RagAnswer.groundedness`)
+### Claim-level verification (added to `RagAnswer.groundedness`; verifier v2 since 2.1.0)
 ```json
 "groundedness": { "supported": 5, "total": 6, "unsupported": ["…"],
-  "claims": [{ "text": "Either party may terminate with 60 days notice.", "supported": true, "score": 0.82, "sources": [1] }] }
+  "checks": ["numbers", "dates", "identifiers", "frequency", "negation", "direction", "parties", "relevance", "nli"],
+  "claims": [
+    { "text": "Either party may terminate with 60 days notice.", "supported": true, "score": 0.82, "sources": [1],
+      "issues": [], "nli": 0.03 },
+    { "text": "The fee is ₹45,000 per year.", "supported": false, "score": 0.77, "sources": [1],
+      "issues": [{ "kind": "number", "detail": "“₹45,000” is not in the source" }], "nli": 0.91 } ] }
 ```
+`score` is similarity to the best-matching source sentence (relevance, not correctness). `issues[].kind` is one of
+`number, date, identifier, frequency, negation, direction, party, roles, unsupported_content, nli`. `nli` is null
+and `"nli"` is absent from `checks` when the NLI model isn't installed (slim image).
 Plus top-level `"abstained": true|false` (answer says the sources don't contain it, or evidence too weak) and
 `"prompt_hash": "sha256…"` (provenance).
 

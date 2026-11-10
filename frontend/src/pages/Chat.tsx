@@ -333,7 +333,7 @@ export default function Chat() {
                   <LogoMark size={40} />
                   <h2 className="mt-4 text-lg font-semibold tracking-tight text-fg">Ask anything about your documents</h2>
                   <p className="mt-1.5 max-w-md text-sm text-muted">
-                    Every answer is glass-box: inline citations, an evidence score, an evidence-overlap check and the full reasoning trace.
+                    Every answer is glass-box: inline citations, an evidence score, a per-sentence claim check (numbers, dates, parties, negation) and the full reasoning trace.
                   </p>
                   <p className="mt-3 text-xs text-subtle">
                     Searching <span className="font-medium text-muted">{scopeText}</span>

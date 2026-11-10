@@ -23,12 +23,12 @@ from typing import Iterator, Optional
 import numpy as np
 from sqlalchemy.orm import Session
 
-from app.ai import guardrails, knowledge, llm
+from app.ai import guardrails, knowledge, llm, verifier
 from app.core.config import settings
 from app.database.models import Document, QueryLog
 from app.ml import embeddings as emb
 from app.ml.insights import split_sentences
-from app.ml.retrieval import Hit, get_index, tokenize
+from app.ml.retrieval import Hit, get_index
 
 logger = logging.getLogger(__name__)
 
@@ -147,38 +147,64 @@ def _extractive_answer(query: str, hits: list[Hit]) -> str:
 _CITE = re.compile(r"\[(\d{1,2})\]")
 
 
-def _verify(answer: str, sources: list[dict], hits: list[Hit], deep: bool) -> dict:
-    """Sentence-level groundedness: is each claim supported by the text it cites?"""
+def _verify(answer: str, sources: list[dict], hits: list[Hit], deep: bool, query: str = "") -> dict:
+    """Claim-level verification (verifier v2): is each sentence consistent with the source text it cites?
+
+    Each sentence is checked against its cited passages (or all passages if it cites none) for numbers, dates,
+    identifiers, frequencies, negation, direction words, parties/roles and semantic relevance. When the ML extras
+    and the LettuceDetect weights are present, one NLI pass over the whole answer adds a learned check.
+    """
     by_index = {s["index"]: hits[s["index"] - 1].chunk.text for s in sources}
-    raw = [s for s in split_sentences(re.sub(r"[*_`#>|]", " ", answer)) if len(s) > 25]
+    plain = re.sub(r"[*_`#>|]", " ", answer)
+    raw = [s for s in split_sentences(plain) if len(s) > 25]
     claims = [s for s in raw if not _NOT_FOUND.search(s) and not s.lower().startswith(("extractive answer", "note"))]
     if not claims or not by_index:
         return {"supported": 0, "total": 0, "unsupported": [], "cited_ratio": 0.0, "support_ratio": 1.0, "claims": []}
     src_ids = list(by_index)
-    src_vecs, model = emb.embed([by_index[i] for i in src_ids])
-    claim_vecs, _ = emb.embed([_CITE.sub("", c) for c in claims], model)
-    src_tokens = {i: set(tokenize(by_index[i])) for i in src_ids}
-    supported, unsupported, cited, records = 0, [], 0, []
+    model = emb.active_model_name()
     threshold = 0.5 if model != emb.HASHING_MODEL_NAME else 0.35
-    for c, cv in zip(claims, claim_vecs):
+    cache: dict[str, np.ndarray] = {}
+
+    def embed_cached(texts: list[str]) -> np.ndarray:
+        missing = [t for t in dict.fromkeys(texts) if t not in cache]
+        if missing:
+            vecs, _ = emb.embed(missing, model)
+            cache.update(zip(missing, vecs))
+        return np.vstack([cache[t] for t in texts])
+
+    nli_probs = None
+    if settings.enable_nli_verifier:
+        nli_probs = verifier.nli_sentence_probs(query, [by_index[i] for i in src_ids], plain, claims)
+
+    supported, unsupported, cited, records, review = 0, [], 0, [], 0
+    for k, c in enumerate(claims):
         refs = [int(x) for x in _CITE.findall(c) if int(x) in by_index]
         cited += bool(refs)
         pool = refs or src_ids
-        sims = [float(src_vecs[src_ids.index(r)] @ cv) for r in pool]
-        toks = set(tokenize(_CITE.sub("", c)))
-        lex = max((len(toks & src_tokens[r]) / max(1, len(toks)) for r in pool), default=0.0)
-        best_sim = max(sims, default=0.0)
-        ok = best_sim >= threshold or lex >= 0.6
+        v = verifier.check_claim(c, [by_index[r] for r in pool], embed_fn=embed_cached, sim_threshold=threshold,
+                                 question=query)
+        if nli_probs is not None and nli_probs[k] is not None:
+            v.nli = round(nli_probs[k], 3)
+            if nli_probs[k] >= settings.verifier_nli_threshold:
+                v.add("nli", f"the NLI model marks part of this sentence as unsupported (p={nli_probs[k]:.2f})")
         text = _CITE.sub("", c).strip()[:240]
-        if ok:
+        if v.supported:
             supported += 1
+            review += v.needs_review
         else:
             unsupported.append(text)
-        best_src = pool[int(np.argmax(sims))] if sims else None
-        records.append({"text": text, "supported": ok, "score": round(max(best_sim, lex), 3),
-                        "sources": refs or ([best_src] if best_src else [])})
+        if not refs and len(src_ids) > 1:  # point the UI at the passage the sentence matches best
+            cv = embed_cached([text])[0]
+            refs_shown = [max(src_ids, key=lambda r: float(embed_cached([by_index[r]])[0] @ cv))]
+        else:
+            refs_shown = refs or src_ids[:1]
+        records.append({"text": text, "supported": v.supported, "needs_review": v.supported and v.needs_review,
+                        "score": None if v.similarity is None else round(v.similarity, 3),
+                        "sources": refs_shown, "issues": v.issues[:4], "nli": v.nli})
     result = {"supported": supported, "total": len(claims), "unsupported": unsupported, "claims": records[:30],
-              "cited_ratio": cited / len(claims), "support_ratio": supported / len(claims)}
+              "cited_ratio": cited / len(claims), "support_ratio": supported / len(claims), "review": review,
+              "checks": ["numbers", "dates", "identifiers", "periods", "parties", "relevance"],
+              "review_checks": ["negation", "direction", "roles"] + (["nli"] if nli_probs is not None else [])}
 
     if deep and llm.has_llm():  # LLM-as-judge second opinion
         try:
@@ -334,7 +360,7 @@ def run(db: Session, *, tenant_id: int, user_id: int, query: str, document_ids: 
     # ---------------------------------------------------------------- verify + score
     ver = {"supported": 0, "total": 0, "unsupported": [], "support_ratio": 0.0, "cited_ratio": 0.0}
     if sources:
-        ver = _verify(answer, sources, hits, deep)
+        ver = _verify(answer, sources, hits, deep, query)
         yield emit("verify", f"groundedness: {ver['supported']}/{ver['total']} claims supported"
                              + (f" · judge {ver['judge']:.2f}" if "judge" in ver else ""))
     confidence = _confidence(hits[:len(sources)], ver, answer) if sources else 0.0
@@ -350,7 +376,8 @@ def run(db: Session, *, tenant_id: int, user_id: int, query: str, document_ids: 
         "type": "final", "answer": answer, "citations": sources, "confidence": confidence,
         "grounded": grounded, "abstained": abstained,
         "groundedness": {k: ver.get(k) for k in ("supported", "total", "unsupported", "claims", "support_ratio",
-                                                 "cited_ratio", "judge") if k in ver},
+                                                 "cited_ratio", "judge", "checks", "review_checks", "review")
+                         if k in ver},
         "sub_queries": sub_queries, "trace": trace, "provider": provider, "model": model,
         "latency_ms": latency, "mode": mode, "session_id": session_id, "prompt_hash": prompt_hash,
     }
