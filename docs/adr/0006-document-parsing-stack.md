@@ -1,6 +1,6 @@
 # ADR-0006 — Document parsing: Docling + PaddleOCR + Tesseract; licence-clean models
 
-**Status:** Proposed
+**Status:** Accepted (owner mandate 2026-11-10) — amended
 
 **Context.** v2 uses PyMuPDF + EasyOCR + OpenCV heuristics. Research (`docs/research/TECHNOLOGY_EVALUATION.md`) found
 EasyOCR stagnant and slow on CPU, Table Transformer archived (Sep 2026), LayoutLMv3 weights non-commercial,
@@ -22,3 +22,14 @@ egress; VLM-only parsing (ungrounded and costly on CPU).
 DocBench metrics ≥ the current baseline.
 
 **Revisit when.** A GPU is available (Granite-Docling, local VLMs) or Docling fails >10% of DocBench pages.
+
+## Amendment 2026-11-10
+
+Source: `docs/review/C_ADR_REVIEW.md`.
+- **Two tiers (ADR-0014).** Slim (default, no torch): pypdfium2 (rendering, highlights), pdfplumber/pdfminer (text and
+  word boxes), OpenCV preprocessing, Tesseract and RapidOCR (Apache-2.0, PP-OCR models on ONNX Runtime, no torch/paddle).
+  ML (optional): Docling (needs torch via docling-ibm-models), PaddleOCR-VL (Apache-2.0 weights), table models.
+- **Excluded from the shipped image:** PyMuPDF (AGPL, being replaced), OCRmyPDF (depends on Ghostscript, AGPL — to
+  confirm), Surya/Marker weights (revenue-restricted / non-commercial).
+- **Order:** replace the PyMuPDF renderer and highlighter first, then text extraction. Any component becomes default for a
+  document class only after it beats the slim baseline on StatementBench / DocBench.

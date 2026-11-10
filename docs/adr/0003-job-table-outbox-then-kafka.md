@@ -1,6 +1,6 @@
 # ADR-0003 — Job table + transactional outbox now; Kafka at a trigger
 
-**Status:** Proposed
+**Status:** Accepted (owner mandate 2026-11-10) — amended
 
 **Context.** We need async ingestion, retries, a dead-letter queue and visible lifecycle now. Kafka adds consumer
 groups, replay and partitioned ordering — valuable once several independent consumers exist — at an operational cost.
@@ -17,3 +17,12 @@ licence change); Redpanda (BSL).
 **Consequences.** Producers never change when Kafka arrives; replay requirements are tested from the start.
 
 **Revisit when.** Continuous discovery (layer L8) ships — expected to be the trigger.
+
+## Amendment 2026-11-10
+
+Source: `docs/review/C_ADR_REVIEW.md`.
+- **Simplification:** while every consumer is a job in the same database, inserting the job row in the business
+  transaction *is* the transactional outbox. The `outbox` table and relay are added only at step B (Kafka).
+- **Job contract:** `idempotency_key` unique per tenant and kind; claim with `FOR UPDATE SKIP LOCKED`; lease with
+  heartbeat; exponential backoff with jitter; `dead` state after `max_attempts`; `NOTIFY` only as a wake-up hint.
+- **Build vs adopt:** thin in-house implementation; Procrastinate (MIT) is the fallback.
