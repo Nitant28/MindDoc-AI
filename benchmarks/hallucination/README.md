@@ -97,6 +97,13 @@ python -m benchmarks.hallucination.agreement annotator_a.jsonl annotator_b.jsonl
 python -m benchmarks.hallucination.run --file adjudicated.jsonl --configs value rules --report
 ```
 
+### Result (scored once, 2026-11-12, commit `28d868a`)
+
+v3 red tier: caught 72% (95% CI 67–76%), wrongly flagged 11% (8–16%); v2 71% / 30%. The pre-registered false-flag
+target (≤ 10%) was **not met**. Full tables, per-class results, calibration and test-revealed bugs:
+`../reports/HALLUCINATION_BENCHMARK.md`. The test split has now been seen: fixes for what it revealed need a fresh
+held-out set.
+
 ### HB-Synth v1 limits
 
 1. **Same developer.** Templates and verifier were written by the same person. The held-out phrasing, names and
