@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 import json
 import logging
 import re
@@ -200,8 +201,12 @@ def delete_document(db: Session, doc: Document):
     knowledge.remove_document(db, doc.tenant_id, doc.id)
     db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).delete(synchronize_session=False)
     statements.clear(db, doc.id)
-    from app.database.models import PartyMention
+    from app.database.models import Claim, PartyMention
     db.query(PartyMention).filter(PartyMention.document_id == doc.id).delete(synchronize_session=False)
+    # claims built on this document stop being current; their versions stay in the history (ADR-0004)
+    db.query(Claim).filter(Claim.subject_document_id == doc.id, Claim.superseded_at.is_(None)).update(
+        {Claim.superseded_at: datetime.utcnow(), Claim.supersede_reason: "source document deleted"},
+        synchronize_session=False)
     db.delete(doc)
     db.commit()
     retrieval.invalidate(doc.tenant_id)

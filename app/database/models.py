@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text,
+from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
                         UniqueConstraint,
                         create_engine, event, inspect, text)
 from sqlalchemy.engine import make_url
@@ -450,6 +450,57 @@ class PartyReview(Base):
     decided_by = Column(Integer, ForeignKey("users.id"))
     decided_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ---------------------------------------------------------------- Claims with evidence (R5, ADR-0004, design F §2.3/§3)
+
+class Claim(Base):
+    """A versioned assertion built from observations, e.g. TRANSFERRED_TO(statement account -> party, amount, date).
+
+    `claim_key` is the stable logical key; each row is one *version*. System time: a version is current from
+    `recorded_at` until `superseded_at` (NULL = current). Versions are never edited except to close them; a change
+    inserts a new version pointing at the old one (`supersedes_id`)."""
+    __tablename__ = "claims"
+    __table_args__ = (Index("uq_claims_current_version", "case_id", "claim_key", unique=True,
+                            sqlite_where=text("superseded_at IS NULL"), postgresql_where=text("superseded_at IS NULL")),)
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False)
+    claim_key = Column(String, nullable=False, index=True)
+    kind = Column(String, nullable=False)                    # TRANSFERRED_TO | RECEIVED_FROM
+    subject_document_id = Column(Integer, ForeignKey("documents.id", ondelete="SET NULL"))  # the statement account
+    subject_label = Column(String)
+    object_party_id = Column(Integer, ForeignKey("parties.id", ondelete="SET NULL"))     # a party *record*
+    amount_minor = Column(BigInteger, nullable=False)
+    currency = Column(String(3), nullable=False, default="INR")
+    valid_date = Column(Date)                                # valid time: the transaction date
+    status = Column(String, nullable=False)                  # reconciled | extracted | needs_review
+    method = Column(String, nullable=False)                  # e.g. statement-engine r4.0
+    supersedes_id = Column(Integer, ForeignKey("claims.id"))
+    recorded_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    superseded_at = Column(DateTime, index=True)
+    supersede_reason = Column(String)
+
+
+class ClaimEvidence(Base):
+    """Where a claim version comes from. Region fields are copied, so an old version still resolves to the exact
+    page region after the statement is re-analysed."""
+    __tablename__ = "claim_evidence"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    claim_id = Column(Integer, ForeignKey("claims.id", ondelete="CASCADE"), index=True, nullable=False)
+    role = Column(String, nullable=False, default="supports")
+    source_type = Column(String, nullable=False)             # statement_txn
+    statement_txn_id = Column(Integer)                       # informational: may be replaced by re-analysis
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    page = Column(Integer)
+    seq = Column(Integer)
+    box_x0 = Column(Integer)
+    box_top = Column(Integer)
+    box_x1 = Column(Integer)
+    box_bottom = Column(Integer)
+    quote = Column(Text)                                     # the narration as read
+    external_id = Column(String)                             # e.g. AA txnId
 
 def _auto_migrate():
     """Add columns introduced after a table was created (SQLite has no create_all upgrades)."""

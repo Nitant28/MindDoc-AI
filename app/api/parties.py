@@ -112,10 +112,30 @@ def unmerge(body: UnmergeBody, case_id: Optional[int] = None, db: Session = Depe
 
 
 @router.get("/graph")
-def graph(case_id: Optional[int] = None, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """Money flows between statement accounts and canonical parties; every edge lists its transactions."""
+def graph(case_id: Optional[int] = None, as_of: Optional[datetime] = None, db: Session = Depends(get_db),
+          user=Depends(get_current_user)):
+    """Money flows between statement accounts and canonical parties, built from transfer claims (current, or as
+    known at system time `as_of`). Every edge carries its claims and each claim its evidence row."""
     case = _case(db, user, case_id)
-    return {"case_id": case.id, **service.flow_graph(db, case.id)}
+    return {"case_id": case.id, **service.flow_graph(db, case.id, as_of)}
+
+
+@router.get("/claims")
+def claims(case_id: Optional[int] = None, party_id: Optional[int] = None, as_of: Optional[datetime] = None,
+           db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """TRANSFERRED_TO / RECEIVED_FROM claims with evidence (statement row, page, region)."""
+    from app.identity.claims import claims_view
+    case = _case(db, user, case_id)
+    return {"case_id": case.id, "as_of": as_of, "claims": claims_view(db, case.id, as_of=as_of, party_id=party_id)}
+
+
+@router.get("/claims/history")
+def claim_versions(key: str, case_id: Optional[int] = None, db: Session = Depends(get_db),
+                   user=Depends(get_current_user)):
+    """All versions of one logical claim, oldest first, with why each was superseded."""
+    from app.identity.claims import claim_history
+    case = _case(db, user, case_id)
+    return {"case_id": case.id, "claim_key": key, "versions": claim_history(db, case.id, key)}
 
 
 @router.get("/{party_id}")

@@ -210,3 +210,92 @@ def test_identity_events_are_append_only_for_the_app_role(case_ctx):
         db.execute(text("DELETE FROM identity_events WHERE id = :i"), {"i": ev.id})
         db.commit()
     db.rollback()
+
+
+# ------------------------------------------------------------------------------------------- R5 part 2
+
+def test_document_name_and_identifier_pairing_is_conservative():
+    from app.identity.doc_parties import find_doc_parties
+    text = ("TAX INVOICE No. 2024/118\n"
+            "Supplier: Sunrise Traders Pvt Ltd\n"
+            "GSTIN: 27AAACS1234K1Z5\n"
+            "Buyer: Konkan Fisheries LLP          GSTIN 27AAFFK7788Q1Z2\n"
+            "Proprietor PAN: ALWPG5809L\n"
+            "Rekha Mehta (PAN ALWPM1234Q) signed as witness.\n"
+            "Random code ABCDE1234F on a line with no name 12345\n")
+    got = {(p.name, p.kind, p.pan, p.gstin) for p in find_doc_parties(text)}
+    assert got == {("Sunrise Traders Pvt Ltd", "org", "AAACS1234K", "27AAACS1234K1Z5"),
+                   ("Konkan Fisheries LLP", "org", "AAFFK7788Q", "27AAFFK7788Q1Z2"),
+                   ("Rekha Mehta", "person", "ALWPM1234Q", None)}  # unlabelled PAN and invalid codes are skipped
+
+
+def test_claims_versioning_as_of_and_graph_evidence(client, tmp_path):
+    from app.database.models import Claim, StatementTxn
+    h = _user(client, "claims-owner@example.com")
+    doc = client.post("/api/documents/upload?wait=true", headers=h,
+                      files={"file": ("claims.pdf", _statement_pdf(tmp_path), "application/pdf")}).json()["document_id"]
+    client.get(f"/api/documents/{doc}/statement", headers=h)
+    first = client.post("/api/parties/resolve", headers=h).json()
+    assert first["claims_created"] == first["mentions_added"] > 0
+
+    # same source, same engine: deterministic keys and identical evidence -> no new versions, even after re-analysis
+    client.get(f"/api/documents/{doc}/statement?refresh=true", headers=h)
+    again = client.post("/api/parties/resolve", headers=h).json()
+    assert again["claims_created"] == 0 and again["claims_unchanged"] == first["claims_created"]
+
+    claims = client.get("/api/parties/claims", headers=h).json()["claims"]
+    c0 = claims[0]
+    assert c0["evidence"][0]["document_id"] == doc and c0["evidence"][0]["seq"] and c0["status"] in (
+        "reconciled", "extracted", "needs_review")
+    t_before = c0["version"]["recorded_at"]
+
+    # a changed observation supersedes the claim; the old version stays readable as of its time
+    tid = client.get("/api/auth/me", headers=h).json()["id"]
+    db = SessionLocal()
+    tenant = db.execute(text("SELECT tenant_id FROM users WHERE id = :i"), {"i": tid}).scalar()
+    set_tenant(db, tenant)
+    claim = db.get(Claim, c0["id"])
+    txn = db.query(StatementTxn).filter(StatementTxn.seq == c0["evidence"][0]["seq"]).filter(
+        StatementTxn.statement_id.in_(db.query(models.Statement.id).filter(models.Statement.document_id == doc))).one()
+    if claim.kind == "TRANSFERRED_TO":
+        txn.debit_minor += 100
+    else:
+        txn.credit_minor += 100
+    db.commit()
+    db.close()
+    third = client.post("/api/parties/resolve", headers=h).json()
+    assert third["claims_superseded"] == 1 and third["claims_created"] == 1
+    hist = client.get("/api/parties/claims/history", headers=h, params={"key": c0["claim_key"]}).json()["versions"]
+    assert [v["amount_minor"] for v in hist] == [c0["amount_minor"], c0["amount_minor"] + 100]
+    assert hist[0]["superseded_at"] and "amount_minor" in hist[0]["supersede_reason"]
+    old = client.get("/api/parties/claims", headers=h, params={"as_of": t_before}).json()["claims"]
+    assert any(c["claim_key"] == c0["claim_key"] and c["amount_minor"] == c0["amount_minor"] and c["evidence"]
+               for c in old)
+
+    g = client.get("/api/parties/graph", headers=h).json()
+    assert g["edges"] and all(e["claims"] and all(c["seq"] and c["document_id"] == doc for c in e["claims"])
+                              for e in g["edges"])
+
+    # deleting the source closes its claims (history kept)
+    assert client.delete(f"/api/documents/delete/{doc}", headers=h).status_code == 200
+    assert client.get("/api/parties/claims", headers=h).json()["claims"] == []
+
+
+def test_document_gstin_joins_the_statement_party(client, tmp_path):
+    h = _user(client, "docid-owner@example.com")
+    doc = client.post("/api/documents/upload?wait=true", headers=h,
+                      files={"file": ("docid.pdf", _statement_pdf(tmp_path), "application/pdf")}).json()["document_id"]
+    client.get(f"/api/documents/{doc}/statement", headers=h)
+    client.post("/api/parties/resolve", headers=h)
+    org = next(p for p in client.get("/api/parties", headers=h).json()["parties"]
+               if p["kind"] == "org" and p["transactions"] and not any(i["scheme"] == "GSTIN" for i in p["identifiers"]))
+    pan = "AAAC" + org["name"][0].upper() + "4321Q"
+    invoice = f"TAX INVOICE\nSupplier: {org['name']}\nGSTIN: 27{pan}1Z5\nAmount payable as agreed.\n"
+    client.post("/api/documents/upload?wait=true", headers=h,
+                files={"file": ("invoice.txt", invoice.encode(), "text/plain")})
+    run = client.post("/api/parties/resolve", headers=h).json()
+    assert run["document_parties_created"] == 1
+    joined = next(p for p in client.get("/api/parties", headers=h).json()["parties"] if org["party_id"] in p["member_ids"])
+    assert {"scheme": "GSTIN", "value": f"27{pan}1Z5"} in joined["identifiers"]
+    det = client.get(f"/api/parties/{joined['party_id']}", headers=h).json()
+    assert any(m["source_type"] == "document" for m in det["mentions"])

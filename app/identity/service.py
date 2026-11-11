@@ -105,6 +105,42 @@ def build_candidates(db: Session, tenant_id: int, case_id: int) -> dict:
     return {"parties_created": created, "mentions_added": mentions}
 
 
+def build_doc_candidates(db: Session, tenant_id: int, case_id: int) -> dict:
+    """Party records from names printed next to a valid PAN/GSTIN in the case's documents. Idempotent."""
+    from app.identity.doc_parties import find_doc_parties
+    docs = (db.query(Document).join(CaseDocument, CaseDocument.document_id == Document.id)
+            .filter(CaseDocument.case_id == case_id).all())
+    by_sig = {p.signature: p for p in db.query(Party).filter(Party.case_id == case_id).all()}
+    seen = {(m.party_id, m.source_id) for m in db.query(PartyMention).join(Party, Party.id == PartyMention.party_id)
+            .filter(Party.case_id == case_id, PartyMention.source_type == "document")}
+    created = mentions = 0
+    for doc in docs:
+        for dp in find_doc_parties(doc.content or ""):
+            norm = normalize_name(dp.name)
+            signature = f"{norm}|pan:{dp.pan}"
+            party = by_sig.get(signature)
+            if party is None:
+                party = Party(tenant_id=tenant_id, case_id=case_id, kind=dp.kind, name=dp.name[:255],
+                              name_norm=norm, signature=signature)
+                db.add(party)
+                db.flush()
+                by_sig[signature] = party
+                created += 1
+            have = {(i.scheme, i.value) for i in db.query(PartyIdentifier).filter(PartyIdentifier.party_id == party.id)}
+            for ident in dp.identifiers:
+                if (ident["scheme"], ident["value"]) not in have:
+                    db.add(PartyIdentifier(tenant_id=tenant_id, party_id=party.id, scheme=ident["scheme"],
+                                           value=ident["value"], valid_structure=True))
+                    have.add((ident["scheme"], ident["value"]))
+            if (party.id, doc.id) not in seen:
+                db.add(PartyMention(tenant_id=tenant_id, party_id=party.id, source_type="document",
+                                    source_id=doc.id, document_id=doc.id, text=dp.line, channel="DOC"))
+                seen.add((party.id, doc.id))
+                mentions += 1
+    db.flush()
+    return {"document_parties_created": created, "document_mentions_added": mentions}
+
+
 # ------------------------------------------------------------------------------------------- resolution run
 
 def _blocked_pairs(db: Session, case_id: int) -> set:
@@ -133,6 +169,7 @@ def _records(db: Session, case_id: int) -> list[Record]:
 def run_resolution(db: Session, tenant_id: int, case_id: int, user_id: Optional[int] = None) -> dict:
     """Build candidates, resolve, and record automatic merges and review items. Commits."""
     built = build_candidates(db, tenant_id, case_id)
+    built.update(build_doc_candidates(db, tenant_id, case_id))
     records = _records(db, case_id)
     decisions, _ = resolve(records)
     cmap = canonical_map(db, case_id)
@@ -173,8 +210,10 @@ def run_resolution(db: Session, tenant_id: int, case_id: int, user_id: Optional[
                                state="open"))
             existing_reviews.add((a, b))
             queued += 1
+    from app.identity.claims import build_claims
+    claims = build_claims(db, tenant_id, case_id, now)
     db.commit()
-    return {**built, "records": len(records), "auto_merges": merged, "review_items": queued,
+    return {**built, **claims, "records": len(records), "auto_merges": merged, "review_items": queued,
             "skipped_by_human_decision": skipped, "model": MODEL_VERSION}
 
 
@@ -269,7 +308,7 @@ def parties_overview(db: Session, case_id: int, as_of: Optional[datetime] = None
         for pid in members:
             for m in mentions.get(pid, []):
                 names[parties[pid].name] += 1
-                t = txns.get(m.source_id)
+                t = txns.get(m.source_id) if m.source_type == "statement_txn" else None
                 if t is not None:
                     debit += t.debit_minor
                     credit += t.credit_minor
@@ -305,14 +344,18 @@ def party_detail(db: Session, case_id: int, party_id: int) -> dict:
     reversed_ids = {e.reverses_event_id for e in events if e.kind == "unmerge"}
     names = {p.id: p.name for p in db.query(Party).filter(Party.id.in_(
         {e.a_party_id for e in events} | {e.b_party_id for e in events} | set(members)))}
-    return {**overview, "canonical_id": canon,
+    from app.identity.claims import claims_view
+    def txn(m):
+        return txns.get(m.source_id) if m.source_type == "statement_txn" else None
+
+    return {**overview, "canonical_id": canon, "claims": claims_view(db, case_id, party_id=canon, cmap=cmap),
             "mentions": [{"party_record_id": m.party_id, "source_type": m.source_type, "source_id": m.source_id,
                           "document_id": m.document_id, "channel": m.channel, "text": m.text,
-                          "date": txns[m.source_id].txn_date.isoformat() if m.source_id in txns else None,
-                          "debit_minor": txns[m.source_id].debit_minor if m.source_id in txns else None,
-                          "credit_minor": txns[m.source_id].credit_minor if m.source_id in txns else None,
-                          "page": txns[m.source_id].page if m.source_id in txns else None,
-                          "seq": txns[m.source_id].seq if m.source_id in txns else None}
+                          "date": txn(m).txn_date.isoformat() if txn(m) else None,
+                          "debit_minor": txn(m).debit_minor if txn(m) else None,
+                          "credit_minor": txn(m).credit_minor if txn(m) else None,
+                          "page": txn(m).page if txn(m) else None,
+                          "seq": txn(m).seq if txn(m) else None}
                          for m in sorted(ms, key=lambda m: (m.document_id or 0, m.source_id))],
             "events": [{"id": e.id, "kind": e.kind, "a": {"id": e.a_party_id, "name": names.get(e.a_party_id)},
                         "b": {"id": e.b_party_id, "name": names.get(e.b_party_id)}, "method": e.method,
@@ -343,31 +386,34 @@ def review_queue(db: Session, case_id: int, state: str = "open") -> list[dict]:
     return out
 
 
-def flow_graph(db: Session, case_id: int) -> dict:
-    """Account (statement) nodes -> canonical party nodes, with money in/out and the transactions behind each edge."""
-    cmap = canonical_map(db, case_id)
-    over = {o["party_id"]: o for o in parties_overview(db, case_id)}
-    ms = db.query(PartyMention).join(Party, Party.id == PartyMention.party_id) \
-        .filter(Party.case_id == case_id, PartyMention.source_type == "statement_txn").all()
-    txns = {t.id: t for t in db.query(StatementTxn).filter(StatementTxn.id.in_([m.source_id for m in ms]))} if ms else {}
-    stmts = {s.document_id: s for s in db.query(Statement).filter(
-        Statement.document_id.in_({m.document_id for m in ms if m.document_id}))} if ms else {}
-    docs = {d.id: d.filename for d in db.query(Document.id, Document.filename).filter(Document.id.in_(list(stmts)))} \
-        if stmts else {}
+def flow_graph(db: Session, case_id: int, as_of: Optional[datetime] = None) -> dict:
+    """Statement accounts -> canonical parties, built from transfer claims (current, or as known at `as_of`).
+    Every edge carries its claims and each claim its evidence rows (document, page, row, region)."""
+    from app.identity.claims import claims_view
+    cmap = canonical_map(db, case_id, as_of)
+    over = {o["party_id"]: o for o in parties_overview(db, case_id, as_of)}
+    claims = claims_view(db, case_id, as_of=as_of, cmap=cmap)
     edges: dict[tuple, dict] = {}
-    for m in ms:
-        t = txns.get(m.source_id)
-        if t is None or not m.document_id:
+    accounts: dict[int, str] = {}
+    for c in claims:
+        if c["party_id"] is None or c["subject_document_id"] is None:
             continue
-        key = (m.document_id, cmap[m.party_id])
-        e = edges.setdefault(key, {"source": f"acct:{m.document_id}", "target": f"party:{cmap[m.party_id]}",
-                                   "out_minor": 0, "in_minor": 0, "transactions": []})
-        e["out_minor"] += t.debit_minor
-        e["in_minor"] += t.credit_minor
-        e["transactions"].append(t.id)
-    nodes = [{"id": f"acct:{d}", "type": "account", "label": (stmts[d].account_masked or docs.get(d) or f"Statement {d}"),
-              "document_id": d} for d in stmts]
+        accounts[c["subject_document_id"]] = c["subject_label"] or f"Statement {c['subject_document_id']}"
+        key = (c["subject_document_id"], c["party_id"])
+        e = edges.setdefault(key, {"source": f"acct:{key[0]}", "target": f"party:{key[1]}", "out_minor": 0,
+                                   "in_minor": 0, "claims": []})
+        if c["kind"] == "TRANSFERRED_TO":
+            e["out_minor"] += c["amount_minor"]
+        else:
+            e["in_minor"] += c["amount_minor"]
+        ev = c["evidence"][0] if c["evidence"] else {}
+        e["claims"].append({"id": c["id"], "kind": c["kind"], "date": c["date"], "amount_minor": c["amount_minor"],
+                            "status": c["status"], "document_id": ev.get("document_id"), "page": ev.get("page"),
+                            "seq": ev.get("seq"), "quote": ev.get("quote")})
+    nodes = [{"id": f"acct:{d}", "type": "account", "label": label, "document_id": d} for d, label in accounts.items()]
     used = {k[1] for k in edges}
     nodes += [{"id": f"party:{p}", "type": "party", "label": over[p]["name"], "kind": over[p]["kind"],
                "party_id": p} for p in used if p in over]
-    return {"nodes": nodes, "edges": list(edges.values())}
+    for e in edges.values():
+        e["transactions"] = [c["id"] for c in e["claims"]]
+    return {"nodes": nodes, "edges": list(edges.values()), "as_of": as_of}

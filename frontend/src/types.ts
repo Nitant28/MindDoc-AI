@@ -595,8 +595,27 @@ export interface PartyMentionView {
   seq: number | null;
 }
 
+export interface ClaimView {
+  id: number;
+  claim_key: string;
+  kind: 'TRANSFERRED_TO' | 'RECEIVED_FROM' | string;
+  subject_document_id: number | null;
+  subject_label: string | null;
+  party_record_id: number | null;
+  party_id: number | null;
+  party_name: string | null;
+  amount_minor: number;
+  currency: string;
+  date: string | null;
+  status: 'reconciled' | 'extracted' | 'needs_review' | string;
+  method: string;
+  version: { recorded_at: string; superseded_at: string | null; supersedes_id: number | null };
+  evidence: Array<{ document_id: number | null; page: number | null; seq: number | null; quote: string | null; box: number[] | null }>;
+}
+
 export interface PartyDetail extends PartySummary {
   canonical_id: number;
+  claims: ClaimView[];
   mentions: PartyMentionView[];
   events: IdentityEventView[];
 }
@@ -628,5 +647,22 @@ export interface ResolveResult {
 export interface FlowGraph {
   case_id: number;
   nodes: Array<{ id: string; type: 'account' | 'party'; label: string; kind?: string; party_id?: number; document_id?: number }>;
-  edges: Array<{ source: string; target: string; out_minor: number; in_minor: number; transactions: number[] }>;
+  edges: Array<{
+    source: string;
+    target: string;
+    out_minor: number;
+    in_minor: number;
+    transactions: number[];
+    claims: Array<{
+      id: number;
+      kind: string;
+      date: string | null;
+      amount_minor: number;
+      status: string;
+      document_id: number | null;
+      page: number | null;
+      seq: number | null;
+      quote: string | null;
+    }>;
+  }>;
 }

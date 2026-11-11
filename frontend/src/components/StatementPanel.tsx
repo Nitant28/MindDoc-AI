@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { documentsApi, errorMessage } from '../api';
 import { formatMinor, relTime, type Tone } from '../lib/format';
 import type { StatementAnalysis, StatementCheck, StatementTxn } from '../types';
@@ -49,7 +49,16 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 /** `autoLoad`: the document is already known to be a statement, so show the stored analysis without a click. */
-export default function StatementPanel({ documentId, autoLoad = false }: { documentId: number; autoLoad?: boolean }) {
+export default function StatementPanel({
+  documentId,
+  autoLoad = false,
+  focusSeq = null,
+}: {
+  documentId: number;
+  autoLoad?: boolean;
+  /** Open this row's evidence (page box or source record) once the analysis is loaded, e.g. from a claim link. */
+  focusSeq?: number | null;
+}) {
   const [data, setData] = useState<StatementAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +82,17 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
     if (autoLoad) void run(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoLoad, documentId]);
+
+  const focused = useRef<number | null>(null);
+  useEffect(() => {
+    if (!data || focusSeq == null || focused.current === focusSeq) return;
+    const t = data.transactions?.find((x) => x.seq === focusSeq);
+    if (t) {
+      focused.current = focusSeq;
+      open(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, focusSeq]);
 
   const flaggedSeqs = useMemo(
     () => new Set((data?.checks ?? []).filter((c) => c.status === 'fail' && c.seq != null).map((c) => c.seq as number)),

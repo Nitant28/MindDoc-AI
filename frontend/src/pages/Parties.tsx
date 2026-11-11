@@ -15,7 +15,7 @@ import { useToast } from '../components/ui/Toast';
 import { formatMinor } from '../lib/format';
 import { useTheme } from '../lib/theme';
 import { useTitle } from '../lib/useTitle';
-import type { FlowGraph, GraphEdge, GraphNode, PartyDetail, PartyReviewItem, PartySummary, ResolveResult } from '../types';
+import type { ClaimView, FlowGraph, GraphEdge, GraphNode, PartyDetail, PartyReviewItem, PartySummary, ResolveResult } from '../types';
 
 type Tab = 'review' | 'parties' | 'graph';
 
@@ -30,6 +30,41 @@ const LEVEL_TONE: Record<string, 'success' | 'info' | 'warning' | 'neutral'> = {
   other: 'neutral',
   missing: 'neutral',
 };
+
+const CLAIM_TONE: Record<string, 'success' | 'warning' | 'neutral'> = {
+  reconciled: 'success',
+  needs_review: 'warning',
+  extracted: 'neutral',
+};
+
+/** Link to the exact statement row behind a claim (the document page boxes it on the page or shows the record). */
+function rowLink(documentId: number | null, seq: number | null): string | null {
+  return documentId && seq ? `/documents/${documentId}?row=${seq}` : null;
+}
+
+function ClaimRow({ c, onNavigate }: { c: Pick<ClaimView, 'kind' | 'date' | 'amount_minor' | 'status'> & { document_id: number | null; seq: number | null; quote: string | null }; onNavigate?: () => void }) {
+  const href = rowLink(c.document_id, c.seq);
+  return (
+    <tr>
+      <td className="whitespace-nowrap px-2 py-1.5 tabular-nums">{c.date ?? '—'}</td>
+      <td className="whitespace-nowrap px-2 py-1.5">{c.kind === 'TRANSFERRED_TO' ? 'paid to' : 'received from'}</td>
+      <td className="px-2 py-1.5 text-right tabular-nums">{formatMinor(c.amount_minor)}</td>
+      <td className="px-2 py-1.5">
+        <Badge tone={CLAIM_TONE[c.status] ?? 'neutral'}>{c.status.replace('_', ' ')}</Badge>
+      </td>
+      <td className="max-w-[16rem] truncate px-2 py-1.5 text-muted" title={c.quote ?? ''}>
+        {c.quote}
+      </td>
+      <td className="whitespace-nowrap px-2 py-1.5">
+        {href ? (
+          <Link className="text-accent underline" to={href} onClick={onNavigate}>
+            row {c.seq}
+          </Link>
+        ) : null}
+      </td>
+    </tr>
+  );
+}
 
 function methodLabel(m: string): string {
   if (m === 'human') return 'Reviewer';
@@ -381,13 +416,27 @@ export default function Parties() {
                     <div key={`${e.source}-${e.target}`} className="rounded-lg border border-line p-2">
                       <div className="font-medium text-fg">{other?.label}</div>
                       <div className="tabular-nums text-muted">
-                        out {formatMinor(e.out_minor)} · in {formatMinor(e.in_minor)} · {e.transactions.length} txn
+                        out {formatMinor(e.out_minor)} · in {formatMinor(e.in_minor)} · {e.claims.length} claim{e.claims.length === 1 ? '' : 's'}
                       </div>
-                      {other?.document_id || selectedNode?.document_id ? (
-                        <Link className="text-accent underline" to={`/documents/${other?.document_id ?? selectedNode?.document_id}`}>
-                          Open statement
-                        </Link>
-                      ) : null}
+                      <ul className="mt-1 space-y-0.5">
+                        {e.claims.map((c) => {
+                          const href = rowLink(c.document_id, c.seq);
+                          return (
+                            <li key={c.id} className="flex items-center justify-between gap-2 tabular-nums">
+                              <span className="text-muted">
+                                {c.date} · {c.kind === 'TRANSFERRED_TO' ? '−' : '+'}
+                                {formatMinor(c.amount_minor)}
+                                {c.status === 'needs_review' ? ' · needs review' : ''}
+                              </span>
+                              {href ? (
+                                <Link className="text-accent underline" to={href}>
+                                  row {c.seq}
+                                </Link>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
                   );
                 })}
@@ -459,31 +508,43 @@ export default function Parties() {
               </ul>
             </div>
             <div>
-              <h3 className="mb-1.5 font-semibold uppercase tracking-wider text-subtle">Transactions</h3>
-              <div className="max-h-72 overflow-auto rounded-lg border border-line">
-                <table className="w-full">
-                  <tbody className="divide-y divide-line">
-                    {detail.mentions.map((m) => (
-                      <tr key={`${m.source_type}-${m.source_id}`}>
-                        <td className="whitespace-nowrap px-2 py-1.5 tabular-nums">{m.date ?? '—'}</td>
-                        <td className="max-w-[18rem] truncate px-2 py-1.5" title={m.text ?? ''}>
-                          {m.text}
-                        </td>
-                        <td className="px-2 py-1.5 text-right tabular-nums">{m.debit_minor ? `−${formatMinor(m.debit_minor)}` : ''}</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums">{m.credit_minor ? `+${formatMinor(m.credit_minor)}` : ''}</td>
-                        <td className="px-2 py-1.5">
-                          {m.document_id ? (
-                            <Link className="text-accent underline" to={`/documents/${m.document_id}`} onClick={() => setDetail(null)}>
-                              row {m.seq}
-                            </Link>
-                          ) : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <h3 className="mb-1.5 font-semibold uppercase tracking-wider text-subtle">Transfer claims</h3>
+              {detail.claims.length === 0 ? <p className="text-muted">No transfers.</p> : null}
+              {detail.claims.length ? (
+                <div className="max-h-72 overflow-auto rounded-lg border border-line">
+                  <table className="w-full">
+                    <tbody className="divide-y divide-line">
+                      {detail.claims.map((c) => (
+                        <ClaimRow
+                          key={c.id}
+                          c={{ ...c, document_id: c.evidence[0]?.document_id ?? null, seq: c.evidence[0]?.seq ?? null, quote: c.evidence[0]?.quote ?? null }}
+                          onNavigate={() => setDetail(null)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </div>
+            {detail.mentions.some((m) => m.source_type === 'document') ? (
+              <div>
+                <h3 className="mb-1.5 font-semibold uppercase tracking-wider text-subtle">Named in documents</h3>
+                <ul className="space-y-1">
+                  {detail.mentions
+                    .filter((m) => m.source_type === 'document')
+                    .map((m) => (
+                      <li key={`doc-${m.source_id}-${m.party_record_id}`} className="flex items-center justify-between gap-2">
+                        <span className="truncate text-muted" title={m.text ?? ''}>
+                          {m.text}
+                        </span>
+                        <Link className="shrink-0 text-accent underline" to={`/documents/${m.document_id}`} onClick={() => setDetail(null)}>
+                          open
+                        </Link>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </Modal>
