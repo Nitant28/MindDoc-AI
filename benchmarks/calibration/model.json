@@ -1,0 +1,33 @@
+{
+ "features": [
+  "red",
+  "amber",
+  "coverage",
+  "similarity",
+  "recomputed"
+ ],
+ "intercept": 2.5251110423728336,
+ "coef": {
+  "red": -5.439066872511432,
+  "amber": -4.235188903901634,
+  "coverage": -0.523814974342902,
+  "similarity": -0.5332950954740379,
+  "recomputed": 1.2737935981267339
+ },
+ "l2": 1.0,
+ "target": "P(sentence supported)",
+ "fit": {
+  "reports": [
+   "hbsynth-dev-minilm-2026-11-12.json",
+   "hallucination-all-minilm-2026-11-12.json"
+  ],
+  "n": 638,
+  "supported_rate": 0.4090909090909091,
+  "ece": 0.0303,
+  "ece_adaptive": 0.0407,
+  "brier": 0.0395,
+  "log_loss": 0.1617
+ },
+ "fitted": "2026-11-12",
+ "commit": "13cdd34de7af57df6cbceabe1a85ab822dc7d72f"
+}

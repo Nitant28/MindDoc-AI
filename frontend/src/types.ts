@@ -209,6 +209,8 @@ export interface ClaimCheck {
   needs_review?: boolean | null;
   /** NLI model's max "unsupported" probability for the sentence, when the model ran. */
   nli?: number | null;
+  /** v3 verifier: figures not printed in the source but recomputed from it, with the arithmetic. */
+  derivations?: string[] | null;
 }
 
 export interface Groundedness {

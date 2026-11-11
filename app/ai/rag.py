@@ -5,8 +5,9 @@
     graph     → GraphRAG-lite: add chunks linked to entities named in the question
     rerank    → cross-encoder, then MMR for diversity
     generate  → answer with mandatory [n] citations (streamed)
-    verify    → sentence-level groundedness (embedding + lexical, plus LLM judge in deep mode)
-    score     → calibrated confidence from retrieval strength, support ratio, citation coverage
+    verify    → claim verifier v3 per sentence (values, recomputation, wording; plus LLM judge in deep mode)
+    score     → evidence score from retrieval strength, support ratio, citation coverage (a fixed weighting,
+                NOT calibrated and not a probability; see benchmarks/reports/HALLUCINATION_BENCHMARK.md)
 
 Every step emits a trace event, so the UI can show exactly how an answer was produced.
 Works with zero LLMs configured (extractive answers) and with zero documents (general mode).
@@ -200,10 +201,12 @@ def _verify(answer: str, sources: list[dict], hits: list[Hit], deep: bool, query
             refs_shown = refs or src_ids[:1]
         records.append({"text": text, "supported": v.supported, "needs_review": v.supported and v.needs_review,
                         "score": None if v.similarity is None else round(v.similarity, 3),
-                        "sources": refs_shown, "issues": v.issues[:4], "nli": v.nli})
+                        "sources": refs_shown, "issues": v.issues[:4], "nli": v.nli,
+                        "derivations": v.derivations[:3]})
     result = {"supported": supported, "total": len(claims), "unsupported": unsupported, "claims": records[:30],
               "cited_ratio": cited / len(claims), "support_ratio": supported / len(claims), "review": review,
-              "checks": ["numbers", "dates", "identifiers", "periods", "parties", "relevance"],
+              "checks": ["numbers", "recomputation", "money direction", "change arithmetic", "dates", "identifiers",
+                         "periods", "parties", "relevance"],
               "review_checks": ["negation", "direction", "roles"] + (["nli"] if nli_probs is not None else [])}
 
     if deep and llm.has_llm():  # LLM-as-judge second opinion

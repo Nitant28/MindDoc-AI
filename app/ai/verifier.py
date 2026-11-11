@@ -1,4 +1,4 @@
-"""Claim verifier v2: is an answer sentence supported by the source text it cites?
+"""Claim verifier v3: is an answer sentence supported by the source text it cites?
 
 v1 only measured similarity, so "₹45,000" passed against a source saying "₹48,000", and "not secured" passed against
 "secured" (its tokenizer even dropped "not"). v2 keeps similarity as a relevance gate and adds checks that each
@@ -15,6 +15,18 @@ return a human-readable reason:
   parties      named parties must appear in the source, and must not swap roles (payer ↔ payee, by ↔ to)
   nli          optional: LettuceDetect token classifier (MIT weights) when the ML extras are installed
 
+v3 (R6) adds, as value checks with a written reason or derivation (app/ai/recompute.py):
+  recompute    a figure the passage does not print is accepted when it can be computed from the passage's figures
+               (durations, monthly↔annual, percent-of, count × rate, shares, ratios, column totals, intervals);
+               the derivation is returned so a reviewer can check it
+  flow         an amount in a Debit/Withdrawals (Credit/Deposits) column, or one the passage calls debited
+               (credited), must not be described as coming in (going out)
+  arithmetic   "rose from A to B" with B < A, or "increased to B" when the passage goes from A down to B
+and fixes in the wording heuristics: converse verbs (rents from / leases to), passive voice read only next to the
+name, "declined" read as refused or decreased from what follows it, negated direction words ("not included" =
+excluded), possessive name spans ("Traders' FY"), currency codes (INR, Rs) not taken as party names, and tables
+read row by row with their headers.
+
 These are deterministic heuristics with known blind spots (see docs/CONCEPTS.md and benchmarks/hallucination).
 They make the checker *stricter*, not infallible: a claim that passes is "no inconsistency found", not "true".
 """
@@ -27,6 +39,7 @@ from datetime import date
 from dataclasses import dataclass, field
 from typing import Optional
 
+from app.ai import recompute
 from app.ml.insights import split_sentences
 from app.ml.retrieval import STOPWORDS, _stem
 
@@ -38,7 +51,10 @@ _EXTRA_STOP = {"either", "neither", "also", "both", "any", "all", "each", "every
                "whole", "entire", "total", "ltd", "pvt", "llp", "inc", "limited", "private", "rs", "inr",
                "must", "shall", "may", "will", "can", "lakh", "lakhs", "crore", "crores", "million", "billion",
                "thousand", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-               "eleven", "twelve", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"}
+               "eleven", "twelve", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+               # generic nouns that name no fact ("after the transaction", "in the period")
+               "transaction", "transactions", "period", "entry", "entries", "figure", "figures", "amount",
+               "amounts"}
 _MONTHS = {m: i for i, names in enumerate(
     [("jan", "january"), ("feb", "february"), ("mar", "march"), ("apr", "april"), ("may",), ("jun", "june"),
      ("jul", "july"), ("aug", "august"), ("sep", "sept", "september"), ("oct", "october"), ("nov", "november"),
@@ -58,10 +74,22 @@ def content_words(text: str) -> set[str]:
             if w not in STOPWORDS and w not in _EXTRA_STOP and w not in _MONTHS and len(w) > 2}
 
 
+def _linearise(text: str) -> str:
+    """Table rows as "Header: value; ..." so similarity and wording checks see what each cell means."""
+    tables = recompute.parse_tables(text)
+    if not tables:
+        return text
+    lines = text.splitlines()
+    for t in tables:
+        for i, cells in t.rows.items():
+            lines[i] = "; ".join(f"{h}: {c}" for h, c in zip(t.header, cells) if c and h)
+    return "\n".join(lines)
+
+
 def _sentences(text: str) -> list[str]:
     """Sentences, with each line (e.g. a table row) treated as its own unit."""
     out = []
-    for line in _norm(text).splitlines():
+    for line in _linearise(_norm(text)).splitlines():
         out += [x.strip() for x in (split_sentences(line) or [line]) if len(x.strip()) > 2]
     return out
 
@@ -237,7 +265,7 @@ _FREQ_RE = {k: re.compile(rf"\b(?:{v})", re.I) for k, v in _FREQ.items()}
 _NEG_RE = re.compile(r"\b(not|no|never|none|nor|neither|cannot|can't|won't|isn't|aren't|wasn't|weren't|doesn't|"
                      r"don't|didn't|hasn't|haven't|hadn't|without|unable)\b|n't\b", re.I)
 _NEG_WORDS_RE = re.compile(r"\b(reject(?:s|ed)?|declin(?:e|es|ed)|refus(?:e|es|ed)|denied|unsecured|unpaid|"
-                           r"prohibit(?:s|ed)?|forbidden|disallow(?:s|ed)?|invalid|exclud(?:e|es|ed|ing)|"
+                           r"prohibit(?:s|ed)?|forbidden|disallow(?:s|ed)?|invalid|exclud(?:e|es|ed|ing)|abstain(?:s|ed|ing)?|"
                            r"omit(?:s|ted)?|left out)\b", re.I)
 _DIRECTIONS = [
     (r"credit(?:s|ed)?", r"debit(?:s|ed)?"),
@@ -250,6 +278,32 @@ _DIRECTIONS = [
     (r"surplus", r"deficit"),
 ]
 _DIR_RE = [(re.compile(rf"\b(?:{a})\b", re.I), re.compile(rf"\b(?:{b})\b", re.I)) for a, b in _DIRECTIONS]
+
+
+_DECLINE = re.compile(r"\bdeclin(?:e|es|ed|ing)\b", re.I)
+_DECREASE_AFTER = re.compile(r"^\s+(?:sharply\s+|marginally\s+|slightly\s+|further\s+|steadily\s+)?"
+                             r"(?:to|by|from)\s+(?:₹|rs\.?|inr|about|around|nearly)?\s*\d"
+                             r"|^\s+(?:sharply|marginally|slightly|steadily)\b", re.I)
+
+
+def _disambiguate(text: str) -> str:
+    """'declined to 1.08' is a decrease; 'declined the request' is a refusal. Rewrite each so the negation and
+    direction checks read the right sense."""
+    return _DECLINE.sub(lambda m: "decreased" if _DECREASE_AFTER.match(text[m.end():]) else "refused", text)
+
+
+_NEG_BEFORE = re.compile(r"\b(?:not|never)\b|n't\b", re.I)
+
+
+def _direction_side(text: str, a_rx, b_rx) -> Optional[str]:
+    """Which side of a direction pair the text takes; a negated word counts as the other side ("not included")."""
+    sides = set()
+    for side, rx in (("a", a_rx), ("b", b_rx)):
+        for m in rx.finditer(text):
+            before = " ".join(text[:m.start()].split()[-2:])
+            negated = bool(_NEG_BEFORE.search(before))
+            sides.add(side if not negated else ("b" if side == "a" else "a"))
+    return sides.pop() if len(sides) == 1 else None
 
 
 def _polarity(clause: str, other_words: set[str]) -> int:
@@ -277,10 +331,17 @@ _ENTITY_SKIP = {"the", "a", "an", "on", "in", "at", "if", "either", "neither", "
                 "services", "cover", "sales", "net", "tax", "monthly", "annual", "personal", "drawing", "cash",
                 "there", "some", "date", "narration", "debit", "credit", "balance", "policy", "order", "rent",
                 "purchase", "sum", "rate", "director", "directors", "board", "valuer", "auditor", "statutory",
-                "fy", "most", "after", "receivables"}
+                "fy", "most", "after", "receivables", "inr", "rs", "usd", "eur", "gbp"}
 _ORG_SUFFIX = re.compile(r"\b(pvt|private|ltd|limited|llp|inc|co)\.?\b", re.I)
 _PASSIVE_RE = re.compile(r"\b(is|are|was|were|be|been|being|get|got|gets)\s+(?:\w+ly\s+)?\w+(?:ed|en|wn|id|ld|lt|ht)\b",
                          re.I)
+_LOCAL_PASSIVE = re.compile(r"^\s*(?:,[^,]{0,60},\s*)?(?:has\s+|have\s+|had\s+)?(?:is|are|was|were|be|been|being|"
+                            r"get|got|gets)\s+(?:\w+ly\s+)?(?:been\s+)?\w+(?:ed|en|wn|id|ld|lt|ht)\b", re.I)
+# Verbs whose active subject receives (rents, borrows, buys): "B rents the unit from A" = "A leases it to B".
+_ACQUIRE = re.compile(r"^\s*(?:has\s+|have\s+|had\s+)?(?:\w+ly\s+)?(?:rents?|rented|borrow(?:s|ed)?|buys?|bought|"
+                      r"purchas(?:e|es|ed)|receiv(?:e|es|ed)|avail(?:s|ed)?|obtain(?:s|ed)?|takes?|took|taken|"
+                      r"accept(?:s|ed)?|gets?|got)\b", re.I)
+_TWO_WAY = re.compile(r"^\s*(?:has\s+|have\s+|had\s+)?(?:leases?|leased|lets?|hires?|hired)\b", re.I)
 _SUBJECT_PREFIX = re.compile(r"^(?:\W|\d|the\b|a\b|an\b|on\b|in\b|at\b|if\b|its\b|their\b|his\b|her\b|"
                              r"\d{1,2}\s+\w+\s+\d{4}\b)*$", re.I)
 
@@ -294,6 +355,9 @@ def extract_entities(text: str) -> list[tuple[str, int]]:
     out = []
     for m in _ENTITY_RE.finditer(text):
         raw = m.group(0)
+        pm = re.search(r"(?:s'|'s)(?=\s|$)", raw)  # possessive ends the name: "Sunrise Traders' FY" -> Sunrise Traders
+        if pm:
+            raw = raw[:pm.start() + 1] if raw[pm.start()] == "s" else raw[:pm.start()]
         words = raw.split()
         offset = 0
         while words and words[0].lower().rstrip(",.") in _ENTITY_SKIP | set(_MONTHS):
@@ -327,7 +391,8 @@ def _roles(clause: str) -> tuple[dict[str, str], Optional[str]]:
     for name, pos in extract_entities(clause):
         if name.isupper() and len(name) <= 5:
             continue  # channels and instruments (NEFT, RTGS, ATM, GST) are not parties
-        if clause[pos + len(name):pos + len(name) + 2] == "'s":
+        rest = clause[pos + len(name):]
+        if rest.startswith("'s") or (name.endswith("s") and rest.startswith("'")):
             continue  # possessive: not a participant
         key = _entity_key(name)
         prep = re.search(r"\b(by|from|to)\s+(?:the\s+)?$", clause[max(0, pos - 12):pos].lower())
@@ -336,8 +401,13 @@ def _roles(clause: str) -> tuple[dict[str, str], Optional[str]]:
             continue
         segment = clause[:pos].rsplit(",", 1)[-1]
         if _SUBJECT_PREFIX.match(segment.strip()) is not None:
-            passive = bool(_PASSIVE_RE.search(clause[pos:]))
-            roles[key] = "TARGET" if passive else "SOURCE"
+            passive = bool(_LOCAL_PASSIVE.match(rest))
+            receives = bool(_ACQUIRE.match(rest))
+            if _TWO_WAY.match(rest):  # "leases X to B" gives, "leases X from A" receives
+                tail = rest.lower()
+                f, t = tail.find(" from "), tail.find(" to ")
+                receives = f >= 0 and (t < 0 or f < t)
+            roles[key] = "TARGET" if passive or receives else "SOURCE"
             if not passive and subject is None:
                 subject = key
     return roles, subject
@@ -358,6 +428,7 @@ class Verdict:
     coverage: float = 0.0
     similarity: Optional[float] = None
     nli: Optional[float] = None
+    derivations: list[str] = field(default_factory=list)
 
     @property
     def needs_review(self) -> bool:
@@ -375,10 +446,50 @@ class Verdict:
 REVIEW_KINDS = {"negation", "direction", "roles", "nli"}
 
 
-def _best_clause(claim_words: set[str], clauses: list[str]) -> tuple[Optional[str], float]:
+def nearest_freq(text: str, pos: int, window: int = 40) -> Optional[str]:
+    best, dist = None, window + 1
+    for kind, rx in _FREQ_RE.items():
+        for m in rx.finditer(text):
+            d = min(abs(m.start() - pos), abs(m.end() - pos))
+            if d < dist:
+                best, dist = kind, d
+    return best
+
+
+def _counterparty_subject(claim: str) -> bool:
+    """A named party (not 'the account') is the active subject: 'Godavari paid ₹8 lakh into ...'."""
+    ents = extract_entities(claim)
+    if not ents:
+        return False
+    name, pos = ents[0]
+    return _SUBJECT_PREFIX.match(claim[:pos].strip()) is not None and not _LOCAL_PASSIVE.match(claim[pos + len(name):])
+
+
+def _value_tokens(text: str) -> set[str]:
+    found, masked = extract_dates(text)
+    toks = {f"d:{r.y}-{r.m}-{r.d}" for rs, _ in found for r in rs if r.y and r.m and r.d}
+    _, masked = extract_identifiers(masked)
+    return toks | {f"n:{round(n.value, 2)}" for n in extract_numbers(masked) if n.value >= 10}
+
+
+def _best_clause(claim_words: set[str], clauses: list[str], claim: str = "") -> tuple[Optional[str], float]:
+    """The source sentence that best matches the claim: shared content words weighted by rarity across the
+    passage (so "theft" outweighs "policy"), plus shared full dates and figures."""
+    import math
+    units = [content_words(c) | _value_tokens(c) for c in clauses]
+    df: dict[str, int] = {}
+    for u in units:
+        for t in u:
+            df[t] = df.get(t, 0) + 1
+    n = len(units)
+    w = lambda t: math.log(1 + n / df.get(t, 1))  # noqa: E731
+    target = claim_words | (_value_tokens(claim) if claim else set())
     best, score = None, 0.0
-    for c in clauses:
-        s = _dice(claim_words, content_words(c))
+    for c, u in zip(clauses, units):
+        if not u or not target:
+            continue
+        shared = sum(w(t) for t in target & u)
+        s = 2 * shared / (sum(w(t) for t in target) + sum(w(t) for t in u))
         if s > score:
             best, score = c, s
     return best, score
@@ -429,38 +540,41 @@ def check_claim(claim: str, sources: list[str], *, similarity: Optional[float] =
         if ident not in s_ids and not (ident.isdigit() and ident in s_id_digits):
             v.add("identifier", f"“{ident.upper() if not ident.isdigit() else ident}” does not match the source")
 
-    # ---- numbers (amounts, percentages, counts)
+    # ---- numbers (amounts, percentages, counts): printed in the source, or recomputed from its figures
     c_nums, s_nums = extract_numbers(c_masked), extract_numbers(s_masked)
-    plain = [n.value for n in s_nums if not n.pct]
-    derived = {a + b for i, a in enumerate(plain) for b in plain[i + 1:]} | \
-              {abs(a - b) for i, a in enumerate(plain) for b in plain[i + 1:]} if len(plain) <= 25 else set()
+    tables = recompute.parse_tables(source)
+    c_figs = recompute.figures(c_masked, c_nums, content_words, nearest_freq)
+    s_figs = recompute.figures(s_masked, s_nums, content_words, nearest_freq, tables)
     full = sorted({(r.y, r.m, r.d) for r in s_readings if r.y and r.m and r.d})
-    for i, a in enumerate(full):  # intervals between source dates: "two days later", "about 20 months"
-        for b in full[i + 1:]:
-            try:
-                days = abs((date(*b) - date(*a)).days)
-            except ValueError:
-                continue
-            derived |= {float(days), round(days / 30.44, 1), round(days / 7, 1), round(days / 365.25, 1)}
-    for n in c_nums:
+    extras = recompute.column_totals(tables) + recompute.date_intervals(full)
+    for n, f in zip(c_nums, c_figs):
         tol = 0.05 if n.approx else 1e-6
-        pool = [s.value for s in s_nums if s.pct == n.pct]
-        if any(_close(n.value, s, tol) for s in pool):
+        if not f.ratio_phrase and any(_close(n.value, s.value, tol) for s in s_nums if s.pct == n.pct):
             continue
-        if not n.pct and any(_close(n.value, d, max(tol, 1e-6)) for d in derived):
-            continue  # e.g. a total of two figures in the source
+        why = recompute.derive(f, s_figs, claim, cw, extras)
+        if why:
+            v.derivations.append(f"“{n.text}”: {why}")
+            continue
         v.add("number", f"“{n.text}” is not in the source" + (" (not within 5% either)" if n.approx else ""))
 
-    # ---- frequency bound to a number ("₹3,25,000 per month" vs "per year")
-    def nearest_freq(text: str, pos: int, window: int = 40) -> Optional[str]:
-        best, dist = None, window + 1
-        for kind, rx in _FREQ_RE.items():
-            for m in rx.finditer(text):
-                d = min(abs(m.start() - pos), abs(m.end() - pos))
-                if d < dist:
-                    best, dist = kind, d
-        return best
+    # ---- money direction: an amount the source shows going out must not be described as coming in
+    cp_subject = _counterparty_subject(claim)
+    for n, f in zip(c_nums, c_figs):
+        if f.pct:
+            continue
+        flow = recompute.source_flow(f, s_figs, s_masked)
+        said = recompute.claim_direction(claim, cp_subject) if flow else None
+        if flow and said and said != flow[0]:
+            v.add("flow", f"“{n.text}” {'came in' if flow[0] == 'in' else 'went out'} ({flow[1]}); the claim says "
+                          f"it {'came in' if said == 'in' else 'went out'}")
+            break
 
+    # ---- change arithmetic: rose/fell against the figures themselves
+    why = recompute.from_to_contradiction(c_masked, c_figs, s_masked, s_figs)
+    if why:
+        v.add("arithmetic", why)
+
+    # ---- frequency bound to a number ("₹3,25,000 per month" vs "per year")
     for n in c_nums:
         cf = nearest_freq(c_masked, n.pos)
         if not cf:
@@ -475,17 +589,18 @@ def check_claim(claim: str, sources: list[str], *, similarity: Optional[float] =
             v.add("frequency", f"the source never says {kind}")
 
     # ---- polarity and direction against the best-matching source sentence
-    best, score = _best_clause(cw, sentences)
+    best, score = _best_clause(cw, sentences, claim)
     if best and score >= 0.3:
         bw = content_words(best)
-        if _polarity(claim, bw) != _polarity(best, cw):
+        claim_d, best_d = _disambiguate(claim), _disambiguate(best)
+        if _polarity(claim_d, bw) != _polarity(best_d, cw):
             v.add("negation", f"negation differs from the source: “{best[:140]}”")
         for a_rx, b_rx in _DIR_RE:
-            ca, cb, sa, sb = a_rx.search(claim), b_rx.search(claim), a_rx.search(best), b_rx.search(best)
-            if (ca and not cb and sb and not sa) or (cb and not ca and sa and not sb):
-                word = (ca or cb).group(0)
-                other = (sb or sa).group(0)
-                v.add("direction", f"the claim says “{word}”, the source says “{other}”")
+            cs, ss = _direction_side(claim_d, a_rx, b_rx), _direction_side(best_d, a_rx, b_rx)
+            if cs and ss and cs != ss:
+                word = (a_rx if cs == "a" else b_rx).search(claim_d) or (b_rx if cs == "a" else a_rx).search(claim_d)
+                other = (a_rx if ss == "a" else b_rx).search(best_d) or (b_rx if ss == "a" else a_rx).search(best_d)
+                v.add("direction", f"the claim says “{word.group(0)}”, the source says “{other.group(0)}”")
 
     # ---- parties: present in the source, and not in swapped roles
     s_entities = {_entity_key(n) for n, _ in extract_entities(source)}

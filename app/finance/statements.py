@@ -195,6 +195,18 @@ def _ocr_lines(words: list[Word]) -> list[list[Word]]:
     return [_merge_number_fragments(sorted(line, key=lambda w: w.x0)) for line in out]
 
 
+def header_role(text: str) -> Optional[str]:
+    """Column role of one header cell ("Withdrawals (Dr)" -> debit), from the same lexicon as the extractor.
+
+    The longest lexicon phrase that starts the cell wins. Used by the claim verifier to read table columns.
+    """
+    toks = tuple(_tokens(text))
+    for phrase, role in _PHRASES:
+        if toks[:len(phrase)] == phrase:
+            return role
+    return None
+
+
 def _header_columns(line: list[Word]) -> Optional[list[Column]]:
     stream = [(tok, i) for i, w in enumerate(line) for tok in _tokens(w.text)]
     cols, k = [], 0
