@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 500
     max_image_pixels: int = 40_000_000
     max_docx_uncompressed_mb: int = 200
+    rate_auth_per_min: int = 10        # login/register attempts per IP
     rate_upload_per_min: int = 30
     rate_query_per_min: int = 60
     rate_eval_per_min: int = 5

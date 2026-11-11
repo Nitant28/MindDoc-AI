@@ -33,6 +33,7 @@ os.environ["DATABASE_URL"] = (_postgres_url() if os.getenv("TEST_DB") == "postgr
 os.environ["STORAGE_DIR"] = str(Path(_tmp) / "uploads")
 os.environ["LLM_PROVIDER_ORDER"] = "none"
 os.environ["MINDDOC_SKIP_WARMUP"] = "1"
+os.environ["RATE_AUTH_PER_MIN"] = "1000"  # the suite registers many users per minute; the limiter has its own test
 os.environ["EMBEDDED_WORKER"] = "false"  # job tests drive the worker deterministically
 os.environ["ENABLE_VISION_CAPTIONS"] = "false"
 os.environ["ENABLE_RERANKER"] = os.environ.get("TEST_RERANKER", "false")
