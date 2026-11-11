@@ -545,3 +545,88 @@ export interface AAImportResponse {
   transactions: number;
   warnings: string[];
 }
+
+/* ------------------------------------------------------------------ Parties (R5 entity resolution) */
+export interface PartyIdentifierView {
+  scheme: 'PAN' | 'GSTIN' | 'UPI_VPA' | 'ACCOUNT_IFSC' | string;
+  value: string;
+}
+
+export interface PartySummary {
+  party_id: number;
+  name: string;
+  kind: 'org' | 'person' | 'unknown' | string;
+  records: number;
+  member_ids: number[];
+  names: string[];
+  identifiers: PartyIdentifierView[];
+  transactions: number;
+  debit_minor: number;
+  credit_minor: number;
+  documents: number[];
+}
+
+export interface IdentityEventView {
+  id: number;
+  kind: 'merge' | 'unmerge';
+  a: { id: number; name: string | null };
+  b: { id: number; name: string | null };
+  method: string;
+  probability: number | null;
+  reason: string;
+  features: Record<string, unknown>;
+  decided_by: number | null;
+  decided_at: string;
+  reverses_event_id: number | null;
+  reversed: boolean;
+}
+
+export interface PartyMentionView {
+  party_record_id: number;
+  source_type: string;
+  source_id: number;
+  document_id: number | null;
+  channel: string | null;
+  text: string | null;
+  date: string | null;
+  debit_minor: number | null;
+  credit_minor: number | null;
+  page: number | null;
+  seq: number | null;
+}
+
+export interface PartyDetail extends PartySummary {
+  canonical_id: number;
+  mentions: PartyMentionView[];
+  events: IdentityEventView[];
+}
+
+export interface PartyReviewItem {
+  id: number;
+  state: string;
+  reason: string;
+  method: string;
+  probability: number | null;
+  features: Record<string, unknown>;
+  a: PartySummary | null;
+  b: PartySummary | null;
+  a_record_id: number;
+  b_record_id: number;
+}
+
+export interface ResolveResult {
+  case_id: number;
+  parties_created: number;
+  mentions_added: number;
+  records: number;
+  auto_merges: number;
+  review_items: number;
+  skipped_by_human_decision: number;
+  model: string;
+}
+
+export interface FlowGraph {
+  case_id: number;
+  nodes: Array<{ id: string; type: 'account' | 'party'; label: string; kind?: string; party_id?: number; document_id?: number }>;
+  edges: Array<{ source: string; target: string; out_minor: number; in_minor: number; transactions: number[] }>;
+}

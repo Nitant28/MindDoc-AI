@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-from app.api import auth, chat, documents, intel, vision
+from app.api import auth, chat, documents, intel, parties, vision
 from app.core.config import settings
 from app.database.models import Document, SessionLocal, Tenant, create_tables, init_default_tenant
 from app.database.tenancy import set_tenant
@@ -91,6 +91,7 @@ app.include_router(documents.router, prefix="/api/documents", tags=["documents"]
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(intel.router, prefix="/api/intel", tags=["intelligence"])
 app.include_router(vision.router, prefix="/api/vision", tags=["vision"])
+app.include_router(parties.router, prefix="/api/parties", tags=["parties"])
 
 
 @app.get("/api/health")

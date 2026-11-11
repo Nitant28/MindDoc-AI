@@ -32,6 +32,11 @@ import type {
   DocumentStatus,
   StatementAnalysis,
   AAImportResponse,
+  FlowGraph,
+  PartyDetail,
+  PartyReviewItem,
+  PartySummary,
+  ResolveResult,
 } from './types';
 
 const envUrl = import.meta.env.VITE_API_URL?.trim();
@@ -356,3 +361,19 @@ export async function streamChat(
   onEvent({ type: 'final', ...answer });
   return answer;
 }
+
+/** Entity resolution, review queue, reversible merges and flow graph (R5). */
+export const partiesApi = {
+  resolve: () => api.post<ResolveResult>('/parties/resolve', null, { timeout: 180_000 }).then((r) => r.data),
+  list: () => api.get<{ case_id: number; parties: PartySummary[] }>('/parties').then((r) => r.data.parties),
+  detail: (id: number) => api.get<PartyDetail>(`/parties/${id}`).then((r) => r.data),
+  reviews: (state: 'open' | 'merged' | 'kept_separate' = 'open') =>
+    api.get<{ reviews: PartyReviewItem[] }>('/parties/reviews', { params: { state } }).then((r) => r.data.reviews),
+  decide: (id: number, decision: 'merge' | 'keep_separate', reason: string, overrideConflict = false) =>
+    api
+      .post<{ id: number; state: string }>(`/parties/reviews/${id}`, { decision, reason, override_conflict: overrideConflict })
+      .then((r) => r.data),
+  unmerge: (eventId: number, reason: string) =>
+    api.post<{ event_id: number; still_connected: boolean }>('/parties/unmerge', { event_id: eventId, reason }).then((r) => r.data),
+  graph: () => api.get<FlowGraph>('/parties/graph').then((r) => r.data),
+};

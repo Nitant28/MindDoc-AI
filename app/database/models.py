@@ -371,6 +371,86 @@ class ReconciliationCheck(Base):
     observed_minor = Column(BigInteger)
     hypotheses = Column(Text)
 
+
+# ---------------------------------------------------------------- Identity: parties and reversible merges (R5, ADR-0009)
+
+class Party(Base):
+    """One counterparty *record* within a case (a distinct printed name + identifier signature). Records are never
+    renamed or deleted by resolution; identity events link them into canonical parties."""
+    __tablename__ = "parties"
+    __table_args__ = (UniqueConstraint("case_id", "signature", name="uq_party_signature"),)
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False)
+    kind = Column(String, nullable=False, default="unknown")       # org | person | unknown
+    name = Column(String, nullable=False)                          # as printed (first seen)
+    name_norm = Column(String, nullable=False)
+    signature = Column(String, nullable=False)                     # name_norm + identifiers, for de-duplication
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PartyIdentifier(Base):
+    __tablename__ = "party_identifiers"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    party_id = Column(Integer, ForeignKey("parties.id", ondelete="CASCADE"), index=True, nullable=False)
+    scheme = Column(String, nullable=False)                        # PAN | GSTIN | UPI_VPA | ACCOUNT_IFSC
+    value = Column(String, nullable=False)
+    valid_structure = Column(Boolean, nullable=False, default=True)
+
+
+class PartyMention(Base):
+    """Where a party record was seen: a statement transaction (counterparty) or a document."""
+    __tablename__ = "party_mentions"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    party_id = Column(Integer, ForeignKey("parties.id", ondelete="CASCADE"), index=True, nullable=False)
+    source_type = Column(String, nullable=False)                   # statement_txn | document
+    source_id = Column(Integer, nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    text = Column(Text)
+    channel = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class IdentityEvent(Base):
+    """Append-only log of merges and unmerges between two party records. Canonical parties at any time T are the
+    connected components of merges decided by T and not reversed by T."""
+    __tablename__ = "identity_events"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False)
+    kind = Column(String, nullable=False)                          # merge | unmerge
+    a_party_id = Column(Integer, ForeignKey("parties.id", ondelete="CASCADE"), nullable=False)
+    b_party_id = Column(Integer, ForeignKey("parties.id", ondelete="CASCADE"), nullable=False)
+    reverses_event_id = Column(Integer, ForeignKey("identity_events.id"))
+    method = Column(String, nullable=False)                        # rule:<scheme> | splink-... | human
+    probability_bp = Column(Integer)                               # match probability in basis points (0-10000)
+    reason = Column(Text, nullable=False)
+    features = Column(Text)                                        # JSON "why linked"
+    decided_by = Column(Integer, ForeignKey("users.id"))
+    decided_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
+class PartyReview(Base):
+    """Operational review queue for candidate merges; decisions are recorded as identity events."""
+    __tablename__ = "party_reviews"
+    __table_args__ = (UniqueConstraint("case_id", "a_party_id", "b_party_id", name="uq_party_review_pair"),)
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False)
+    a_party_id = Column(Integer, ForeignKey("parties.id", ondelete="CASCADE"), nullable=False)
+    b_party_id = Column(Integer, ForeignKey("parties.id", ondelete="CASCADE"), nullable=False)
+    method = Column(String, nullable=False)
+    probability_bp = Column(Integer)
+    reason = Column(Text, nullable=False)
+    features = Column(Text)
+    state = Column(String, nullable=False, default="open")         # open | merged | kept_separate
+    decision_reason = Column(Text)
+    decided_by = Column(Integer, ForeignKey("users.id"))
+    decided_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 def _auto_migrate():
     """Add columns introduced after a table was created (SQLite has no create_all upgrades)."""
     insp = inspect(engine)

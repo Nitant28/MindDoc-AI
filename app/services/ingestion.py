@@ -200,6 +200,8 @@ def delete_document(db: Session, doc: Document):
     knowledge.remove_document(db, doc.tenant_id, doc.id)
     db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).delete(synchronize_session=False)
     statements.clear(db, doc.id)
+    from app.database.models import PartyMention
+    db.query(PartyMention).filter(PartyMention.document_id == doc.id).delete(synchronize_session=False)
     db.delete(doc)
     db.commit()
     retrieval.invalidate(doc.tenant_id)

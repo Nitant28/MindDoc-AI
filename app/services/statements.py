@@ -38,6 +38,11 @@ def clear(db: Session, document_id: int) -> None:
     """Remove the stored analysis of a document (children first: works without database-level cascades)."""
     ids = [i for (i,) in db.query(Statement.id).filter(Statement.document_id == document_id).all()]
     if ids:
+        from app.database.models import PartyMention
+        txn_ids = [i for (i,) in db.query(StatementTxn.id).filter(StatementTxn.statement_id.in_(ids)).all()]
+        if txn_ids:  # party mentions point at these transactions (R5); they are rebuilt by the next resolution run
+            db.query(PartyMention).filter(PartyMention.source_type == "statement_txn",
+                                          PartyMention.source_id.in_(txn_ids)).delete(synchronize_session=False)
         db.query(StatementTxn).filter(StatementTxn.statement_id.in_(ids)).delete(synchronize_session=False)
         db.query(ReconciliationCheck).filter(ReconciliationCheck.statement_id.in_(ids)).delete(synchronize_session=False)
         db.query(Statement).filter(Statement.id.in_(ids)).delete(synchronize_session=False)
