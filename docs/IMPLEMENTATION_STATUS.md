@@ -21,8 +21,22 @@ Statuses: BUILT (code + tests + verified) · EXPERIMENTAL · IN PROGRESS · PLAN
 | R2 | Backup/restore procedure | BUILT (docs) | `docs/DEPLOYMENT.md` §4; **restore drill not yet executed** against a hosted database |
 | R2 | pgvector embeddings, FTS retrieval on PostgreSQL | PLANNED (R6) | embeddings still JSON text; in-process index unchanged |
 | R2 | Demo on Neon | NOT DONE — **owner** (Neon account) | `docs/OWNER_ACTIONS.md` §3 |
+| R2 | CI fixes after R2: auth rate limit tripped by the test suite; Docker smoke test did not wait for async ingestion | BUILT | `RATE_AUTH_PER_MIN` setting (test override) + a 429 test; smoke test polls `/status` until `completed`; **CI run pending** |
+| M1 | Market decision gate | OPEN — **owner** | needs interviews; R3 proceeds as low-regret (statements are used by both candidate markets) |
+| R3 | Layout-generic text-layer statement extractor (ADR-0011): word boxes → header lexicon (data file) → right-edge amount columns → dated rows + wrapped narrations → special rows (opening, B/F, C/F, closing) | BUILT | StatementBench dev (40 stmts, 2,602 rows): row F1 **1.000**, statement exact **1.000**, reconciled **1.000**, 0.51 s/page. Held-out test (20 stmts, families E–F, scored once with frozen code): F1 **1.000**, exact **1.000**. Caveats in `benchmarks/reports/STATEMENTBENCH.md` (same author, synthetic, clean, text layer only) |
+| R3 | Reconciliation with ranked diagnoses (row, segment, opening, closing; reversal pairs; direction inferred from balances; same-date reorder search over blocks up to 12 rows; knock-on failures point to their root row) — values never modified | BUILT | unit tests: dropped-digit amount, swapped direction, missing row, reversal pair, inferred direction, no-balance → `not_checkable`, inputs unchanged after reconcile |
+| R3 | `GET /documents/{id}/statement` + row-box page highlight (`/page/{n}/image?box=`) rendered with pypdfium2 (Apache-2.0/BSD) | BUILT | API test: reconciled, rows equal gold, box → PNG with 1 highlight, malformed box 422, bad page 404, other tenant 404; non-statement PDF → `is_statement: false` |
+| R3 | Statement panel on the document page (run, status, summary, failed checks with hypotheses, transactions, click a row → page with the row boxed) | BUILT | type-check, lint (0 errors), production build; **checked in a browser** on a local preview: a statement with one misprinted balance showed *Needs review*, row 21 ranked as a misread balance, row 22 labelled as its knock-on, and *View on page* boxed the correct row on page 1 |
+| R3 | Statement persistence (statement / txn / cell / check tables with RLS) and automatic detection on ingest | PLANNED | currently computed on demand from the stored original |
+| R3 | Account Aggregator JSON import (ADR-0015) | PLANNED | — |
+| R3 | StatementBench v1: fault injection for reconciliation/diagnosis (5 fault types × 300 histories per split) | BUILT | held-out test (scored once): false alarms **0/300**; detection and localisation **1.000** for every fault type; correct hypothesis listed ≥ **0.993**. Top-1 depends on the source prior because a misread amount and a missing row are indistinguishable from the balances alone (`benchmarks/reports/STATEMENTBENCH.md`). Row-level injection only |
+| R3 | Full test suite after the R3 changes | BUILT | SQLite **82 passed, 6 skipped** (PostgreSQL-only tests); PostgreSQL 16 **88 passed**; frontend type-check, lint (0 errors), production build |
+| R3 | Real-statement accuracy (SB-Real under a DPA; public Apache-2.0 set) | NOT DONE — needs **owner** data agreement | — |
 
 Known limitations introduced or remaining:
 - On the free Render demo the uploaded originals live on ephemeral disk; object storage is R9.
 - SQLite remains a single-user fallback without RLS or concurrent job claiming.
+- The document-type classifier has no bank-statement class: the preview statement was labelled *Invoice (47%)*. Statement
+  detection on ingest (R3, planned) should set the type from the statement engine rather than the classifier.
+- Statement analysis runs on demand from the stored original (≈0.5 s/page); results are not yet persisted.
 - Local tests use PostgreSQL 16 / pgvector 0.6 (pgserver); CI uses PostgreSQL 18 / pgvector 0.8.7. No PG18-only SQL is used.

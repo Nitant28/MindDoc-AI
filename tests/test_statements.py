@@ -185,6 +185,14 @@ def test_misread_balance_ranked_first_when_next_row_corroborates():
     assert first.hypotheses[0]["implied"] == 130000
 
 
+def test_fault_benchmark_smoke():
+    from benchmarks.statements.faults import evaluate
+    res = evaluate("dev", 8)
+    assert res["clean"]["false_alarm_rate"]["k"] == 0
+    for m in res["faults"].values():
+        assert m["detected"]["k"] == m["injected"]
+
+
 def test_knock_on_failures_point_to_the_root_cause():
     # misread balance on row 2 also breaks row 3; row 3 must point back to row 2
     rows = _rows([(0, 50000, 150000, "A"), (20000, 0, 138000, "B"), (0, 1000, 131000, "C"), (500, 0, 130500, "D")])

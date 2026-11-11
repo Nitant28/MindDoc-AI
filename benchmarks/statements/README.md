@@ -6,6 +6,7 @@ Measures bank-statement extraction and reconciliation (deliverable H §3, ADR-00
 pip install -r requirements-dev.txt                       # reportlab (BSD), generator only
 python -m benchmarks.statements.generator --out benchmarks/statements/data --dev 10 --test 10
 python -m benchmarks.statements.run --split dev --extractors current engine --report
+python -m benchmarks.statements.faults --split dev --n 300 --report   # v1: fault injection (no PDFs needed)
 ```
 
 | Property | v0 |
@@ -16,12 +17,16 @@ python -m benchmarks.statements.run --split dev --extractors current engine --re
 | Layout variation | separate debit/credit columns; single amount + Dr/Cr column; amount with (Dr)/(Cr); balance with Cr/Dr suffix (cash-credit / overdraft accounts); Indian vs western digit grouping; 5 date formats; wrapped narrations; value-date column on/off; header on every page vs first page only; opening / B/F / C/F rows |
 | Transactions | UPI, NEFT, RTGS, IMPS, NACH, cheque, cash/ATM, interest, charges, reversals; exact paise |
 | Ground truth | per row: date, value date, narration, reference, debit, credit, balance (paise), page; header facts |
-| Not yet included | scanned/degraded variants (R4), bounding boxes in gold, missing/duplicate/broken-row injections (R3 error-localisation set) |
+| Not yet included | scanned/degraded variants (R4), bounding boxes in gold, PDF-level fault injection (v1 injects at row level) |
 | Licence | generated data: same as the repository; fictional banks, parties and identifiers |
 | Known bias | layouts are generic and clean; real statements are messier — see tier SB-Real in H §3.1 |
 
 **Split discipline.** Families E and F are never inspected during engine development. A test score is recorded once
 per release with its commit hash.
+
+## v1 — fault injection
+
+`faults.py` injects one fault per synthetic history (one-edit amount, swapped direction, one-edit balance, dropped row, swapped same-day rows) and scores detection, localisation and hypothesis ranking, plus false alarms on the clean history. Splits are seed ranges: dev 10,000+, test 90,000+ (scored once per release).
 
 ## Results
 See `benchmarks/reports/STATEMENTBENCH.md`.
