@@ -16,7 +16,8 @@ PII_PATTERNS = {
     "SSN": re.compile(r"\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"),
     "IBAN": re.compile(r"\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){3,7}(?:\s?[A-Z0-9]{1,3})?\b"),
     "IP_ADDRESS": re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"),
-    "PAN_IN": re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b"),
+    # 4th character = PAN holder status per the Income Tax Department (see app/finance/identifiers.py)
+    "PAN_IN": re.compile(r"\b[A-Z]{3}[ABCFGHJLPT][A-Z]\d{4}[A-Z]\b"),
     "AADHAAR_IN": re.compile(r"\b[2-9]\d{3}\s\d{4}\s\d{4}\b"),
 }
 

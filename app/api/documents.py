@@ -137,6 +137,17 @@ def statement_analysis(doc_id: int, refresh: bool = False, db: Session = Depends
     return statements.payload(db, stmt)
 
 
+@router.get("/{doc_id}/identifiers")
+def document_identifiers(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """PAN, GSTIN and IFSC values found in the document, each with a structural check against the official layout
+    (sources cited per identifier). Check digits the official sources do not publish are listed as not verified."""
+    from app.finance.identifiers import find_identifiers
+    doc = _own_doc(db, doc_id, user)
+    return {"document_id": doc.id, "identifiers": find_identifiers(doc.content or ""),
+            "note": "Structure only: a well-formed identifier is not proof that it was issued or belongs to the named "
+                    "party; a malformed one is a data-quality signal for review."}
+
+
 @router.post("/{doc_id}/reprocess")
 def reprocess_document(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Queue a fresh processing run (e.g. after a failure or a parser upgrade)."""
