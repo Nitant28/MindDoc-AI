@@ -47,19 +47,37 @@ def _iso(d: Optional[str]) -> Optional[date]:
     return date.fromisoformat(d) if d else None
 
 
-def analyse(db: Session, doc: Document) -> Statement:
-    """Run the engine on the stored original and replace the stored result. Raises FileNotFoundError / ValueError."""
-    from app.finance.statements import extract_statement
-    if not (doc.filename or "").lower().endswith(".pdf"):
-        raise ValueError("Statement analysis currently supports PDF statements")
+AA_EXT = (".json", ".xml")
+
+
+def analyse(db: Session, doc: Document, source_ref: Optional[str] = None) -> Statement:
+    """Run the engine on the stored original and replace the stored result. Raises FileNotFoundError / ValueError
+    (including `AAError` for an invalid Account Aggregator payload). PDFs use the layout engine; `.json` / `.xml`
+    originals are ReBIT deposit payloads (ADR-0015). The consent reference of an earlier import is kept."""
+    import hashlib
+    name = (doc.filename or "").lower()
+    if not name.endswith((".pdf", *AA_EXT)):
+        raise ValueError("Statement analysis supports PDF statements and Account Aggregator deposit data (JSON/XML)")
     if not doc.source_path or not Path(doc.source_path).exists():
         raise FileNotFoundError("Original file is not available; upload it again")
-    res = extract_statement(Path(doc.source_path).read_bytes())
+    data = Path(doc.source_path).read_bytes()
+    if name.endswith(AA_EXT):
+        from app.finance.aa import parse_deposit
+        res = parse_deposit(data, doc.filename)
+        source, extras, schema_version, currency = "aa_deposit", res.extras, res.schema_version, res.currency
+    else:
+        from app.finance.statements import extract_statement
+        res = extract_statement(data)
+        source, extras, schema_version, currency = "pdf_text", {}, None, "INR"
+    if source_ref is None:
+        prev = db.query(Statement.source_ref).filter(Statement.document_id == doc.id).first()
+        source_ref = prev[0] if prev else None
     clear(db, doc.id)
     rows = res.rows
     stmt = Statement(
         tenant_id=doc.tenant_id, document_id=doc.id, engine_version=engine_version(),
-        status=res.status if rows else NOT_A_STATEMENT, currency="INR",
+        status=res.status if rows else NOT_A_STATEMENT, currency=currency, source=source, source_ref=source_ref,
+        payload_sha256=hashlib.sha256(data).hexdigest(), schema_version=schema_version,
         ifsc=(res.header or {}).get("ifsc"), account_masked=(res.header or {}).get("account"),
         opening_minor=res.opening if rows else None, closing_minor=res.closing if rows else None,
         period_start=_iso(rows[0].date) if rows else None, period_end=_iso(rows[-1].date) if rows else None,
@@ -73,12 +91,15 @@ def analyse(db: Session, doc: Document) -> Statement:
     db.flush()
     for r in rows:
         box = res.row_boxes.get(r.seq)
+        x = extras.get(r.seq, {})
         db.add(StatementTxn(
             tenant_id=doc.tenant_id, statement_id=stmt.id, seq=r.seq, txn_date=_iso(r.date), narration=r.narration,
             debit_minor=r.debit, credit_minor=r.credit, balance_minor=r.balance, page=r.page,
             box_x0=box[1] if box else None, box_top=box[2] if box else None,
             box_x1=box[3] if box else None, box_bottom=box[4] if box else None,
-            direction_source=r.direction_source, amount_raw=r.amount_raw or None, balance_raw=r.balance_raw or None))
+            direction_source=r.direction_source, amount_raw=r.amount_raw or None, balance_raw=r.balance_raw or None,
+            value_date=_iso(x.get("value_date")), reference=x.get("reference"), external_id=x.get("external_id"),
+            mode=x.get("mode")))
     for c in res.checks:
         if c.status == "pass" and not c.reason:
             continue  # plain passes are implied by the transactions; keep failures, flags and reversal pairs
@@ -104,9 +125,33 @@ def get_or_analyse(db: Session, doc: Document, refresh: bool = False) -> Stateme
     return stmt
 
 
+def import_aa(db: Session, data: bytes, filename: str, tenant_id: int, owner_id: Optional[int],
+              consent_ref: Optional[str]) -> tuple[Document, bool]:
+    """Import a decrypted ReBIT deposit FI payload as a document plus its statement (ADR-0015). The payload is
+    validated before anything is stored. Returns (document, newly_created); a repeated payload returns the original."""
+    import hashlib
+    from app.finance.aa import parse_deposit, render_text
+    from app.services import ingestion
+    from app.services.document_service import Page, ParsedDocument
+    parsed = parse_deposit(data, filename)  # raises AAError (a ValueError) before any write
+    digest = hashlib.sha256(data).hexdigest()
+    existing = db.query(Document).filter(Document.tenant_id == tenant_id, Document.content_hash == digest).first()
+    if existing is not None:
+        return existing, False
+    doc = ingestion.ingest_parsed(db, ParsedDocument(pages=[Page(1, render_text(parsed))], kind="aa_deposit"),
+                                  filename, tenant_id, owner_id, digest)
+    doc.source_path = ingestion._store_original(tenant_id, doc.id, filename, data)
+    ingestion._link_case(db, tenant_id, doc.id)
+    analyse(db, doc, source_ref=consent_ref)
+    db.commit()
+    return doc, True
+
+
 def payload(db: Session, stmt: Statement) -> dict:
     base = {"document_id": stmt.document_id, "engine_version": stmt.engine_version,
-            "analysed_at": stmt.created_at, "warnings": json.loads(stmt.warnings or "[]")}
+            "analysed_at": stmt.created_at, "warnings": json.loads(stmt.warnings or "[]"),
+            "source": {"type": stmt.source or "pdf_text", "consent_ref": stmt.source_ref,
+                       "payload_sha256": stmt.payload_sha256, "schema_version": stmt.schema_version}}
     if stmt.status == NOT_A_STATEMENT:
         return {**base, "is_statement": False}
     txns = (db.query(StatementTxn).filter(StatementTxn.statement_id == stmt.id).order_by(StatementTxn.seq).all())
@@ -124,6 +169,8 @@ def payload(db: Session, stmt: Statement) -> dict:
             "seq": t.seq, "date": t.txn_date.isoformat(), "narration": t.narration or "",
             "debit_minor": t.debit_minor, "credit_minor": t.credit_minor, "balance_minor": t.balance_minor,
             "page": t.page, "direction_source": t.direction_source,
+            "value_date": t.value_date.isoformat() if t.value_date else None, "reference": t.reference,
+            "external_id": t.external_id, "mode": t.mode,
             "box": [t.box_x0, t.box_top, t.box_x1, t.box_bottom] if t.box_x0 is not None else None} for t in txns],
         "checks": [{
             "scope": c.scope, "seq": c.seq, "status": c.status, "reason": c.reason or "",

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import { documentsApi, errorMessage } from '../api';
+import AAImportCard from '../components/AAImportCard';
 import AnalysisSummary from '../components/AnalysisSummary';
 import DocumentTable from '../components/DocumentTable';
 import { Badge } from '../components/ui/Badge';
@@ -269,6 +270,8 @@ export default function Upload() {
           </ul>
         </Card>
       ) : null}
+
+      <AAImportCard onImported={() => void reload()} />
 
       <div className="mt-6">
         <DocumentTable title="Library" documents={documents} loading={loading} error={error} onDelete={(d) => void remove(d)} />

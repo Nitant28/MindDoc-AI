@@ -323,6 +323,10 @@ class Statement(Base):
     failed_checks = Column(Integer, nullable=False, default=0)
     inferred_directions = Column(Integer, nullable=False, default=0)
     warnings = Column(Text)  # JSON list
+    source = Column(String, nullable=False, default="pdf_text", server_default="pdf_text")  # pdf_text | aa_deposit
+    source_ref = Column(String)       # e.g. the AA consent artefact reference supplied by the customer
+    payload_sha256 = Column(String(64))
+    schema_version = Column(String)   # ReBIT FI schema version for AA imports
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -347,6 +351,10 @@ class StatementTxn(Base):
     direction_source = Column(String, nullable=False)
     amount_raw = Column(String)
     balance_raw = Column(String)
+    value_date = Column(Date)
+    reference = Column(String)
+    external_id = Column(String)      # source transaction id (AA txnId)
+    mode = Column(String)             # AA transaction mode (CASH, ATM, CARD, UPI, FT, OTHERS)
 
 
 class ReconciliationCheck(Base):

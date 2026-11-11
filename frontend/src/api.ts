@@ -31,6 +31,7 @@ import type {
   VisionAnalysis,
   DocumentStatus,
   StatementAnalysis,
+  AAImportResponse,
 } from './types';
 
 const envUrl = import.meta.env.VITE_API_URL?.trim();
@@ -133,6 +134,13 @@ export const authApi = {
 export const documentsApi = {
   list: () => api.get<DocumentSummary[]>('/documents/list').then((r) => arr(r.data)),
   get: (id: number) => api.get<DocumentDetail>(`/documents/${id}`).then((r) => r.data),
+  /** Import a decrypted Account Aggregator deposit payload (ReBIT JSON/XML) the customer already holds. */
+  importAa: (file: File, consentRef?: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (consentRef && consentRef.trim()) form.append('consent_ref', consentRef.trim());
+    return api.post<AAImportResponse>('/documents/import-aa', form, { timeout: 300_000 }).then((r) => r.data);
+  },
   upload: (file: File, onProgress?: (percent: number) => void, signal?: AbortSignal) => {
     const form = new FormData();
     form.append('file', file);

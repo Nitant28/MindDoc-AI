@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -70,6 +70,36 @@ def upload_document(response: Response, file: UploadFile = File(...), wait: bool
             "preview": (doc.content or "")[:200], "analysis": ingestion.document_detail(db, doc)}
 
 
+@router.post("/import-aa")
+def import_account_aggregator(file: UploadFile = File(...), consent_ref: Optional[str] = Form(None),
+                              db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Import a decrypted Account Aggregator deposit FI payload (ReBIT schema, JSON or XML) that the customer already
+    holds (ADR-0015). MindDoc does not request consent or fetch data from an AA. `consent_ref` records the consent
+    artefact reference for provenance. Invalid payloads are rejected with the schema reason (HTTP 400)."""
+    from app.finance.aa import AAError
+    from app.services import statements
+    enforce_rate(upload_limiter, user)
+    filename = file.filename or "aa-deposit.json"
+    if not filename.lower().endswith(statements.AA_EXT):
+        raise HTTPException(status_code=400, detail="Account Aggregator data must be a .json or .xml file")
+    data = file.file.read(settings.max_upload_mb * 1024 * 1024 + 1)
+    if len(data) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb} MB")
+    ref = (consent_ref or "").strip()[:200] or None
+    try:
+        doc, created = statements.import_aa(db, data, filename, user.tenant_id, user.id, ref)
+    except AAError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Not a valid ReBIT deposit payload: {e}")
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    stmt = statements.get_or_analyse(db, doc)
+    return {"message": "Imported" if created else "This payload was already imported", "document_id": doc.id,
+            "created": created, "status": stmt.status, "transactions": stmt.n_txns,
+            "warnings": json.loads(stmt.warnings or "[]")}
+
+
 @router.get("/{doc_id}/status")
 def document_status(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Processing state for the Upload page and Processing Monitor."""
@@ -113,6 +143,9 @@ def reprocess_document(doc_id: int, db: Session = Depends(get_db), user=Depends(
     from app.jobs import queue
     enforce_rate(upload_limiter, user)
     doc = _own_doc(db, doc_id, user)
+    if (doc.filename or "").lower().endswith((".json", ".xml")):
+        raise HTTPException(status_code=422, detail="Imported Account Aggregator data is not re-parsed; "
+                                                    "use statement refresh to re-run reconciliation")
     if doc.status in ("queued", "processing"):
         raise HTTPException(status_code=409, detail=f"Document is already {doc.status}")
     doc.status, doc.status_detail = "queued", "reprocessing requested"

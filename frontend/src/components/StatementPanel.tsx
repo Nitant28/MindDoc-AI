@@ -16,7 +16,7 @@ const STATUS: Record<string, { tone: Tone; label: string; help: string }> = {
     label: 'Reconciled with flags',
     help: 'Balances agree, but some debit/credit directions were inferred from the balance movement.',
   },
-  needs_review: { tone: 'warning', label: 'Needs review', help: 'Some rows do not reconcile. Check the flagged rows against the page.' },
+  needs_review: { tone: 'warning', label: 'Needs review', help: 'Some rows do not reconcile. Check the flagged rows against the source.' },
   not_checkable: { tone: 'neutral', label: 'Not checkable', help: 'The statement has no running balances to reconcile against.' },
 };
 
@@ -40,6 +40,11 @@ interface Inspect {
   txn: StatementTxn;
   url: string | null;
 }
+
+const SOURCE_LABEL: Record<string, string> = {
+  pdf_text: 'PDF text layer',
+  aa_deposit: 'Account Aggregator deposit data',
+};
 
 /** `autoLoad`: the document is already known to be a statement, so show the stored analysis without a click. */
 export default function StatementPanel({ documentId, autoLoad = false }: { documentId: number; autoLoad?: boolean }) {
@@ -79,9 +84,13 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
     [data, onlyFlagged, flaggedSeqs],
   );
 
+  const [record, setRecord] = useState<StatementTxn | null>(null);
+
   const open = (txn: StatementTxn) => {
     if (!txn.box) {
-      toast.info('No source position', 'This row has no recorded position on the page.');
+      // structured sources (AA) have no page: show the source record instead
+      if (txn.external_id || txn.reference) setRecord(txn);
+      else toast.info('No source position', 'This row has no recorded position on the page.');
       return;
     }
     setInspect({ txn, url: null });
@@ -116,7 +125,7 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
       <CardHeader
         icon="table"
         title="Bank statement"
-        description="Transactions and balance reconciliation from the PDF text layer. Values are shown as printed; nothing is corrected."
+        description="Transactions and running-balance reconciliation. Values are shown exactly as read; nothing is corrected."
         actions={
           <Button size="sm" variant={data ? 'ghost' : 'primary'} icon={data ? 'refresh' : 'zap'} loading={loading} onClick={() => run(!!data)}>
             {loading ? 'Analysing…' : data ? 'Re-run' : 'Analyse as bank statement'}
@@ -173,7 +182,8 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
               ))}
             </dl>
             <p className="text-[11px] text-subtle">
-              {data.currency ?? 'INR'} · {data.pages ?? '—'} page{data.pages === 1 ? '' : 's'}
+              {data.currency ?? 'INR'}
+              {data.pages ? ` · ${data.pages} page${data.pages === 1 ? '' : 's'}` : ''}
               {data.header?.ifsc ? ` · IFSC ${data.header.ifsc}` : ''}
               {data.header?.account ? ` · A/c ${data.header.account}` : ''}
               {data.period?.start && data.period.end ? ` · ${data.period.start} to ${data.period.end}` : ''}
@@ -183,6 +193,16 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
               {data.analysed_at ? ` · analysed ${relTime(data.analysed_at)}` : ''}
               {data.engine_version ? ` · engine ${data.engine_version}` : ''}
             </p>
+            {data.source ? (
+              <p className="text-[11px] text-subtle">
+                Source: {SOURCE_LABEL[data.source.type] ?? data.source.type}
+                {data.source.schema_version ? ` (ReBIT schema ${data.source.schema_version})` : ''}
+                {data.source.consent_ref ? ` · consent ${data.source.consent_ref}` : ''}
+                {data.source.payload_sha256 ? (
+                  <span title={data.source.payload_sha256}> · SHA-256 {data.source.payload_sha256.slice(0, 12)}…</span>
+                ) : null}
+              </p>
+            ) : null}
 
             {fails.length ? (
               <div className="space-y-2">
@@ -206,7 +226,7 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
                               if (t) open(t);
                             }}
                           >
-                            View on page
+                            {data.transactions?.find((x) => x.seq === c.seq)?.box ? 'View on page' : 'View source record'}
                           </Button>
                         ) : null}
                       </div>
@@ -224,7 +244,7 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
                   ))}
                 </ul>
                 <p className="text-[11px] text-subtle">
-                  Hypotheses are possible explanations for a mismatch, not findings. Confirm each against the original page.
+                  Hypotheses are possible explanations for a mismatch, not findings. Confirm each against the original source.
                 </p>
               </div>
             ) : null}
@@ -267,7 +287,7 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
                             open(t);
                           }
                         }}
-                        title="Show this row on the original page"
+                        title={t.box ? 'Show this row on the original page' : 'Show the source record'}
                         className={`cursor-pointer hover:bg-elevated/60 focus:bg-elevated/60 focus:outline-none ${flagged ? 'bg-amber-500/10' : ''}`}
                       >
                         <td className="px-2 py-1.5 text-right tabular-nums text-subtle">{t.seq}</td>
@@ -287,7 +307,7 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
                         >
                           {formatMinor(t.balance_minor)}
                         </td>
-                        <td className="px-2 py-1.5 text-right tabular-nums text-subtle">{t.page}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-subtle">{t.page || '—'}</td>
                       </tr>
                     );
                   })}
@@ -304,6 +324,35 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
           </>
         ) : null}
       </CardBody>
+
+      <Modal
+        open={!!record}
+        onClose={() => setRecord(null)}
+        title={record ? `Row ${record.seq} · ${record.date}` : 'Source record'}
+        description="Fields exactly as received in the imported payload."
+      >
+        {record ? (
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 p-4 text-xs sm:p-5">
+            {(
+              [
+                ['Transaction id', record.external_id],
+                ['Reference', record.reference],
+                ['Value date', record.value_date],
+                ['Mode', record.mode],
+                ['Debit', record.debit_minor ? formatMinor(record.debit_minor) : ''],
+                ['Credit', record.credit_minor ? formatMinor(record.credit_minor) : ''],
+                ['Balance', formatMinor(record.balance_minor)],
+                ['Narration', record.narration],
+              ] as Array<[string, string | null | undefined]>
+            ).map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="text-subtle">{k}</dt>
+                <dd className="break-words font-mono text-fg">{v || '—'}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+      </Modal>
 
       <Modal
         open={!!inspect}

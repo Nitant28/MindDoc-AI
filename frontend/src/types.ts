@@ -490,8 +490,13 @@ export interface StatementTxn {
   balance_minor: number | null;
   page: number;
   direction_source: 'column' | 'suffix' | 'inferred_from_balance' | 'unknown' | string;
-  /** x0, top, x1, bottom in tenths of a point (for the page highlight). */
+  /** x0, top, x1, bottom in tenths of a point (for the page highlight); null for structured (AA) data. */
   box: number[] | null;
+  value_date?: string | null;
+  reference?: string | null;
+  /** Source transaction id (AA txnId). */
+  external_id?: string | null;
+  mode?: string | null;
 }
 
 export interface StatementCheck {
@@ -512,6 +517,7 @@ export interface StatementAnalysis {
   engine_version?: string;
   analysed_at?: string | null;
   period?: { start: string | null; end: string | null };
+  source?: { type: 'pdf_text' | 'aa_deposit' | string; consent_ref: string | null; payload_sha256: string | null; schema_version: string | null };
   status?: 'reconciled' | 'reconciled_with_flags' | 'needs_review' | 'not_checkable' | string;
   currency?: string;
   header?: { ifsc?: string | null; account?: string | null };
@@ -528,4 +534,14 @@ export interface StatementAnalysis {
   };
   transactions?: StatementTxn[];
   checks?: StatementCheck[];
+}
+
+/** POST /documents/import-aa */
+export interface AAImportResponse {
+  message: string;
+  document_id: number;
+  created: boolean;
+  status: string;
+  transactions: number;
+  warnings: string[];
 }

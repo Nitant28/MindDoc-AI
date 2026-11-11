@@ -378,7 +378,7 @@ export default function DocumentPage() {
 
             {!limited ? <ExtractionPanel documentId={doc.id} docType={doc.doc_type} /> : null}
 
-            {!limited && (doc.filename ?? '').toLowerCase().endsWith('.pdf') ? <StatementPanel documentId={doc.id} autoLoad={doc.doc_type === 'bank_statement'} /> : null}
+            {!limited && /\.(pdf|json|xml)$/i.test(doc.filename ?? '') ? <StatementPanel documentId={doc.id} autoLoad={doc.doc_type === 'bank_statement'} /> : null}
           </div>
 
           <div className="space-y-6">
