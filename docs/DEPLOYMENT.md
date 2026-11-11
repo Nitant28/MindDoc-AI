@@ -10,6 +10,23 @@ Topology decisions: ADR-0013. Database design: `docs/review/G_POSTGRES_ASYNC_DES
 | Worker | `python -m app.worker` or embedded | **embedded** (`EMBEDDED_WORKER=true`, default) | separate worker service, `EMBEDDED_WORKER=false` |
 | Files | `STORAGE_DIR` folder | container disk is ephemeral on the free plan: originals are lost on restart (documented limitation) | S3 (Mumbai) — not yet implemented |
 
+**Frontend on Vercel (owner decision 2026-11-12).** The Vercel projects linked to this repository host only the static
+frontend. `vercel.json` (repo root) and `frontend/vercel.json` (for a project whose Root Directory is `frontend`) build
+`frontend/` and serve `frontend/dist` with an SPA fallback. They rewrite `/api/*` to the Render backend
+(`https://minddoc-ai-2.onrender.com`), so the browser stays same-origin and needs no CORS change. `.vercelignore`
+keeps backend code and Python manifests out of Vercel builds.
+
+Known limits:
+- Vercel **preview** deployments of a branch call the **main** deployment on Render. Endpoints that exist only on the
+  branch return errors there until the branch is merged and Render redeploys.
+- Previews sit behind Vercel's login (deployment protection).
+- Production Vercel deployments come from `main`, which needs these files merged first.
+- Every request reaches Render from Vercel's servers. The login rate limit keys on the connecting address
+  (`request.client.host`), so users may share one limit. Trusting a forwarded-for header would be spoofable unless the
+  proxy chain is pinned; it is not changed yet.
+- Vercel's limits on proxied request size and duration apply to uploads and long requests and have not been measured.
+  Large uploads may need to go to the Render URL directly.
+
 SQLite remains supported as a **single-user development fallback**: no row-level security, no concurrent job claiming
 (`SKIP LOCKED`), and tenant isolation relies on application filters only. Do not run multi-user deployments on SQLite.
 
