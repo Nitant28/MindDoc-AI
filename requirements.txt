@@ -31,3 +31,6 @@ scikit-learn>=1.3
 pytest>=8
 pg8000>=1.31            # BSD-3-Clause; PostgreSQL driver (pure Python)
 alembic>=1.13           # MIT; schema migrations
+# Entity resolution (ADR-0009): Splink core only (MIT; pulls duckdb MIT, pyarrow Apache-2.0, sqlglot MIT).
+# Do NOT add the igraph extra (GPL) or the postgres extra (psycopg2, LGPL).
+splink==5.0.0
