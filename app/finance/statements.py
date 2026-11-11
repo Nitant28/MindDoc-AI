@@ -26,7 +26,7 @@ _TEXT_ROLES = ("date", "value_date", "narration", "ref", "drcr")
 _MONEY = re.compile(r"^\(?-?(?:₹|rs\.?|inr)?\d{1,3}(?:,\d{2,3})*(?:\.\d{2})\)?-?$|^\(?-?\d+\.\d{2}\)?-?$", re.I)
 _SUFFIX = re.compile(r"^\(?(cr|dr)\.?\)?$", re.I)
 # Bump when extraction or reconciliation output changes: stored analyses from older versions are recomputed.
-ENGINE_VERSION = "r3.1"
+ENGINE_VERSION = "r4.0"
 
 _DATE_FORMATS = ["%d/%m/%y", "%d/%m/%Y", "%d-%m-%Y", "%d-%m-%y", "%d %b %Y", "%d %b %y", "%d-%b-%y", "%d-%b-%Y",
                  "%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d", "%d %B %Y"]
@@ -49,6 +49,7 @@ class Word:
     top: int
     bottom: int
     page: int
+    ocr: bool = False      # recognised by OCR (scanned page) rather than read from a text layer
 
 
 @dataclass
@@ -70,6 +71,7 @@ class StatementResult:
     row_boxes: dict = field(default_factory=dict)   # seq -> (page, x0, top, x1, bottom) in tenths of a point
     pages: int = 0
     warnings: list = field(default_factory=list)
+    ocr_pages: list = field(default_factory=list)
 
 
 def parse_date(text: str) -> Optional[str]:
@@ -83,21 +85,61 @@ def parse_date(text: str) -> Optional[str]:
 
 
 # ------------------------------------------------------------------------------------------------- geometry
-def _words_from_pdf(data: bytes) -> tuple[list[list[Word]], list[str]]:
+OCR_MIN_WORDS = 3  # a page with fewer text-layer words than this is treated as scanned
+
+
+def _words_from_pdf(data: bytes, ocr: bool = True) -> tuple[list[list[Word]], list[str], dict]:
+    """Words per page in tenths of a point. Pages without a text layer are OCR'd (Tesseract) when available.
+    Returns (pages, page_texts, {ocr_page_number: PageFrame})."""
     import io
 
     import pdfplumber
-    pages, texts = [], []
+    pages, texts, ocr_pages = [], [], {}
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         for n, page in enumerate(pdf.pages, start=1):
             ws = page.extract_words(x_tolerance=1.5, y_tolerance=2, keep_blank_chars=False, use_text_flow=False)
-            pages.append([Word(w["text"], int(round(w["x0"] * 10)), int(round(w["x1"] * 10)),
-                               int(round(w["top"] * 10)), int(round(w["bottom"] * 10)), n) for w in ws])
-            texts.append(page.extract_text() or "")
-    return pages, texts
+            if len(ws) >= OCR_MIN_WORDS or not ocr:
+                pages.append([Word(w["text"], int(round(w["x0"] * 10)), int(round(w["x1"] * 10)),
+                                   int(round(w["top"] * 10)), int(round(w["bottom"] * 10)), n) for w in ws])
+                texts.append(page.extract_text() or "")
+                continue
+            from app.vision import ocr_words
+            if not ocr_words.available():
+                pages.append([])
+                texts.append("")
+                continue
+            ow, frame = ocr_words.ocr_page_words(data, n)
+            words = [Word(_ocr_clean(w.text), w.x0, w.x1, w.top, w.bottom, n, ocr=True) for w in ow]
+            pages.append(words)
+            texts.append("\n".join(" ".join(x.text for x in line) for line in _lines(words)))
+            ocr_pages[n] = frame
+    return pages, texts, ocr_pages
+
+
+_OCR_DIGIT = str.maketrans({"O": "0", "o": "0", "D": "0", "l": "1", "I": "1", "|": "1", "S": "5", "§": "5",
+                             "B": "8"})
+_OCR_TAIL = re.compile(r"^(.*?\d.*?)(\(?(?:cr|dr)\.?\)?)$", re.I)
+_NUMERIC_DATE = re.compile(r"^\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}$")
+
+
+def _ocr_clean(text: str) -> str:
+    """Repair common OCR letter/digit confusions and stray trailing punctuation, but only when the repaired token
+    becomes a valid amount or numeric date (a trailing Cr/Dr is kept). Anything else is left exactly as recognised;
+    the page image stays the reference."""
+    stripped = text.rstrip(",.;:'")
+    if stripped != text and _MONEY.match(stripped.translate(_OCR_DIGIT)):
+        text = stripped
+    m = _OCR_TAIL.match(text)
+    body, tail = (m.group(1), m.group(2)) if m else (text, "")
+    fixed = body.translate(_OCR_DIGIT)
+    if fixed != body and (_MONEY.match(fixed) or _NUMERIC_DATE.match(fixed)):
+        return fixed + tail
+    return text
 
 
 def _lines(words: list[Word], tol: int = 25) -> list[list[Word]]:
+    if words and words[0].ocr:
+        return _ocr_lines(words)
     out: list[list[Word]] = []
     for w in sorted(words, key=lambda w: (w.top, w.x0)):
         if out and abs(out[-1][0].top - w.top) <= tol:
@@ -105,6 +147,52 @@ def _lines(words: list[Word], tol: int = 25) -> list[list[Word]]:
         else:
             out.append([w])
     return [sorted(line, key=lambda w: w.x0) for line in out]
+
+
+_NUM_HEAD = re.compile(r"^\(?-?\d[\d,]*$")
+_NUM_TAIL = re.compile(r"^,?\d[\d,]*\.\d{2}\)?$")
+_PAISE_TAIL = re.compile(r"^\d{2}\)?$")
+
+
+def _merge_number_fragments(line: list[Word]) -> list[Word]:
+    """OCR sometimes splits one amount at a comma ("7,31" + ",830.60", "94,44" + "488.80"). Join two adjacent
+    fragments only when they are close together and the joined token is a valid amount."""
+    out: list[Word] = []
+    for w in line:
+        prev = out[-1] if out else None
+        if prev is not None and prev.ocr and 0 <= w.x0 - prev.x1 <= 60 and _NUM_HEAD.match(prev.text) \
+                and not _MONEY.match(prev.text) and (_NUM_TAIL.match(w.text) or
+                                                     ("," in prev.text and _PAISE_TAIL.match(w.text))):
+            a, b = prev.text, w.text
+            options = (a + b, a.rstrip(",") + "," + b.lstrip(",")) if _NUM_TAIL.match(b) else (a + "." + b,)
+            for joined in options:
+                if _MONEY.match(joined):
+                    out[-1] = Word(joined, prev.x0, w.x1, min(prev.top, w.top), max(prev.bottom, w.bottom),
+                                   w.page, ocr=True)
+                    break
+            else:
+                out.append(w)
+            continue
+        out.append(w)
+    return out
+
+
+def _ocr_lines(words: list[Word]) -> list[list[Word]]:
+    """OCR word boxes vary with ascenders and descenders, so group by vertical centre against the line's running
+    mean, with a tolerance of half the typical word height."""
+    heights = sorted(w.bottom - w.top for w in words)
+    tol = max(20, heights[len(heights) // 2] // 2)
+    out: list[list[Word]] = []
+    centres: list[int] = []
+    for w in sorted(words, key=lambda w: ((w.top + w.bottom) // 2, w.x0)):
+        c = (w.top + w.bottom) // 2
+        if out and abs(centres[-1] - c) <= tol:
+            out[-1].append(w)
+            centres[-1] = sum((x.top + x.bottom) // 2 for x in out[-1]) // len(out[-1])
+        else:
+            out.append([w])
+            centres.append(c)
+    return [_merge_number_fragments(sorted(line, key=lambda w: w.x0)) for line in out]
 
 
 def _header_columns(line: list[Word]) -> Optional[list[Column]]:
@@ -210,7 +298,7 @@ def _header_value(texts: list[str], key: str) -> Optional[int]:
 
 # ------------------------------------------------------------------------------------------------ extraction
 def extract_statement(data: bytes) -> StatementResult:
-    pages, texts = _words_from_pdf(data)
+    pages, texts, ocr_pages = _words_from_pdf(data)
     rows: list[TxnRow] = []
     boxes: dict[int, tuple] = {}
     cols: Optional[list[Column]] = None
@@ -218,6 +306,7 @@ def extract_statement(data: bytes) -> StatementResult:
     opening_row: Optional[int] = None
     current: Optional[TxnRow] = None
     current_words: list[Word] = []
+    unreadable: list[int] = []  # rows whose printed balance could not be read
 
     def close_row():
         nonlocal current, current_words
@@ -255,6 +344,8 @@ def extract_statement(data: bytes) -> StatementResult:
                 credit, _, craw = _money(cells, "credit")
                 amount, aside, araw = _money(cells, "amount")
                 bal, bside, braw = _money(cells, "balance")
+                if bal is None and braw.strip():
+                    unreadable.append(len(rows) + 1)
                 src = "column"
                 if amount is not None and debit is None and credit is None:
                     drcr = _cell_text(cells, "drcr").strip().upper()
@@ -288,13 +379,27 @@ def extract_statement(data: bytes) -> StatementResult:
     if opening is None:
         opening = opening_row
     closing = _header_value(texts[-1:], "closing")
-    status, checks, opening_used = reconcile(rows, opening, closing, source="text")
+    if ocr_pages:
+        from app.vision.ocr_words import to_page_box
+        warnings.append(f"{len(ocr_pages)} page(s) read by OCR: values may contain recognition errors")
+        for seq, (pg, *box) in list(boxes.items()):
+            if pg in ocr_pages:
+                boxes[seq] = (pg, *to_page_box(tuple(box), ocr_pages[pg]))
+    elif not any(pages):
+        warnings.append("no text layer and OCR is not available")
+    status, checks, opening_used = reconcile(rows, opening, closing, source="ocr" if ocr_pages else "text")
+    if unreadable:
+        from app.finance.reconcile import STATUS_FLAGS, STATUS_RECONCILED, Check
+        checks.extend(Check("row", seq, None, None, "not_checkable", "balance_unreadable") for seq in unreadable)
+        if status == STATUS_RECONCILED:
+            status = STATUS_FLAGS
     header = {"ifsc": None, "account": None}
     for key in ("ifsc", "account"):
         m = _HEADER_PATTERNS[key].search(texts[0] if texts else "")
         header[key] = m.group(1) if m else None
     return StatementResult(rows=rows, status=status, checks=checks, opening=opening_used, closing=closing,
-                           header=header, row_boxes=boxes, pages=len(pages), warnings=warnings)
+                           header=header, row_boxes=boxes, pages=len(pages), warnings=warnings,
+                           ocr_pages=sorted(ocr_pages))
 
 
 def extract_for_benchmark(pdf_path) -> dict:

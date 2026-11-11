@@ -87,8 +87,8 @@ def infer_directions(rows: list[TxnRow], opening: Optional[int]) -> None:
 # the values were read: a PDF text layer carries exact characters (a dropped or merged row is the common failure),
 # OCR misreads digits.
 RANK = {
-    "text": ["follows_previous_error", "balance_ocr_suspect", "order_ambiguous", "direction_suspect", "missing_row_suspect", "amount_ocr_suspect"],
-    "ocr": ["follows_previous_error", "balance_ocr_suspect", "order_ambiguous", "direction_suspect", "amount_ocr_suspect", "missing_row_suspect"],
+    "text": ["follows_previous_error", "amount_unreadable", "balance_ocr_suspect", "order_ambiguous", "direction_suspect", "missing_row_suspect", "amount_ocr_suspect"],
+    "ocr": ["follows_previous_error", "amount_unreadable", "balance_ocr_suspect", "order_ambiguous", "direction_suspect", "amount_ocr_suspect", "missing_row_suspect"],
 }
 
 
@@ -147,6 +147,11 @@ def _diagnose(rows, i, prev, segment, expected, opening=None, source="text") -> 
     r = rows[i]
     hyps = []
     amount = r.debit or r.credit
+    # no amount could be read for this row: show what the balances imply (the stored value stays as read)
+    if len(segment) == 1 and not amount and r.balance is not None:
+        hyps.append({"code": "amount_unreadable", "detail": "no amount was read for this row; the balances imply "
+                                                            "this amount", "implied": abs(r.balance - prev),
+                     "direction": "credit" if r.balance > prev else "debit"})
     # direction swapped
     if len(segment) == 1 and amount and prev - (r.credit - r.debit) == r.balance:
         hyps.append({"code": "direction_suspect", "detail": "reconciles if the direction is reversed"})

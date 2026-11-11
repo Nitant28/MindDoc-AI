@@ -68,7 +68,8 @@ def analyse(db: Session, doc: Document, source_ref: Optional[str] = None) -> Sta
     else:
         from app.finance.statements import extract_statement
         res = extract_statement(data)
-        source, extras, schema_version, currency = "pdf_text", {}, None, "INR"
+        source = "pdf_ocr" if res.ocr_pages else "pdf_text"
+        extras, schema_version, currency = {}, None, "INR"
     if source_ref is None:
         prev = db.query(Statement.source_ref).filter(Statement.document_id == doc.id).first()
         source_ref = prev[0] if prev else None

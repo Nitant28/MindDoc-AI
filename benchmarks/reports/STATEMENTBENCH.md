@@ -25,6 +25,55 @@ continuation pages and brought/carried-forward rows, and that every extracted st
    error rate on real statements is still unknown.
 4. **Text-layer PDFs only.** Scanned statements (OCR word boxes) are R4.
 
+## StatementBench-Scan — image-only statements through OCR (R4)
+
+The same 60 synthetic statements are rendered to degraded page images and wrapped as image-only PDFs
+(`benchmarks/statements/scan.py`). The engine OCRs them with Tesseract 5.4 (Apache-2.0, `eng` model, `--psm 6`),
+using the pipeline below; v0's column, row and reconciliation logic is unchanged:
+- OCR runs at the page image's native resolution, clamped to 200–400 dpi.
+- Skew is removed with a projection-profile search.
+- Lines are grouped by vertical centre.
+- Two narrow token repairs, each accepted only when the result is a valid amount or numeric date:
+  - letter/digit confusions such as O→0 and §→5;
+  - an amount split at a comma or decimal point.
+- Row boxes are mapped back onto the page for highlighting.
+
+Profiles were developer-chosen and are **not calibrated against real scans**:
+- `mild`: 200 dpi, ±0.3°, light blur and noise, JPEG quality 70–90.
+- `rough`: 150 dpi, ±1°, more blur and noise, JPEG quality 45–70.
+
+| Date | Split | Profile | Row precision | Row recall (95% CI) | Row F1 | Balance acc. | Statement exact | Reconciled | **Silent errors** | False alarms | s/page |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-11-11 | dev (40) | mild | 1.000 | 1.000 (0.998–1.000) | 1.000 | 1.000 | 0.975 | 0.975 | **0/40** | 0/40 | 4.8 |
+| 2026-11-11 | dev (40) | rough | 0.910 | 0.777 (0.760–0.792) | 0.838 | 0.942 | 0.125 | 0.125 | **0/40** | 0/40 | 5.3 |
+| 2026-11-11 | **test** (20, scored once) | mild | 0.999 | 0.999 (0.995–1.000) | 0.999 | 0.996 | **0.800** | 0.800 | **0/20** | 0/20 | 5.0 |
+| 2026-11-11 | **test** (20, scored once) | rough | 0.977 | 0.842 (0.820–0.861) | 0.904 | 0.926 | 0.100 | 0.100 | **0/20** | 0/20 | 5.5 |
+
+*Silent error* means the statement is not exact but the engine reports it `reconciled`. *False alarm* means it is
+exact but not reported `reconciled`.
+
+**The safety property held on all 120 scanned statements.** Every statement with a recognition error ended in
+`needs_review` or `reconciled_with_flags`, and no exact statement was flagged. The engine also never repairs a value
+it cannot verify:
+- An unreadable printed balance is recorded as `balance_unreadable`. The row is then checked through the next
+  readable balance.
+- A row with no readable amount gets an `amount_unreadable` hypothesis showing the amount the balances imply. The
+  stored value stays empty.
+
+**What changed during development (dev split only).** The first dev run (mild) scored row F1 0.983 and 0.375 statement
+exact, at 7.5 s/page. Inspection found three causes:
+- Rotation of ±0.3° drifts words 3–4 pt across column boundaries by the bottom of the page. Fixed by the deskew.
+- Amounts were split at a comma or decimal point. Fixed by joining the fragments, guarded by amount validation.
+- Tesseract read "5" as "§". Fixed by the guarded repair.
+
+Rendering at native resolution instead of upsampling to 300 dpi cut OCR time by about a third with no accuracy loss on
+the inspected statements. A bounded attempt to improve `rough` did not help: upsampling to 300 dpi scored 0.800 vs
+0.804 rows exact on 4 dev statements, and a 3×3 median filter scored 0.528. Rough scans stay a known weakness.
+
+**Not shown.** No real scanned statement has been processed. There is no handwriting, stamp, fold or shadow, and no
+multi-column page. Rough-scan accuracy is low: recall 0.84 with only 10% of statements exact, although every
+imperfect statement is flagged. Throughput is about 5 s/page on one laptop CPU core.
+
 ## StatementBench v1 — fault injection (reconciliation and diagnosis)
 
 `python -m benchmarks.statements.faults --split {dev,test} --n 300 --report`. One fault per statement is injected at

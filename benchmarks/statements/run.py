@@ -165,6 +165,7 @@ def main():
     ap.add_argument("--split", default="dev", choices=["dev", "test", "all"])
     ap.add_argument("--extractors", nargs="+", default=["current"])
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--tag", default="", help="report name prefix, e.g. scan-mild")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
     _register_engine()
@@ -201,7 +202,8 @@ def main():
                                           for k, v in agg["by_layout"].items()))
     if a.report:
         REPORTS.mkdir(parents=True, exist_ok=True)
-        path = REPORTS / f"statementbench-{a.split}-{date.today()}.json"
+        prefix = f"{a.tag}-" if a.tag else ""
+        path = REPORTS / f"statementbench-{prefix}{a.split}-{date.today()}.json"
         path.write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
         print(f"\nwrote {path}")
 

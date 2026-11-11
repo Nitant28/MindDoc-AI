@@ -1,0 +1,304 @@
+{
+ "engine": {
+  "summary": {
+   "statements": 20,
+   "gold_rows": 1237,
+   "pred_rows": 1065,
+   "matched": 1041,
+   "row_precision": 0.9774647887323944,
+   "row_recall": 0.841552142279709,
+   "row_recall_ci": [
+    0.8201491813394162,
+    0.8608402374550537
+   ],
+   "row_f1": 0.9044309296264118,
+   "balance_acc": 0.9260326609029779,
+   "narration_acc": 0.5456292026897214,
+   "statement_exact": 0.1,
+   "statement_exact_ci": [
+    0.027865893984153206,
+    0.30103820641179335
+   ],
+   "reconciled": 0.1,
+   "reconciled_ci": [
+    0.027865893984153206,
+    0.30103820641179335
+   ],
+   "seconds_per_page": 5.525070206665744,
+   "by_layout": {
+    "E": {
+     "statements": 10,
+     "gold_rows": 635,
+     "pred_rows": 578,
+     "matched": 566,
+     "row_precision": 0.9792387543252595,
+     "row_recall": 0.8913385826771654,
+     "row_recall_ci": [
+      0.8647374500938436,
+      0.9132331767407269
+     ],
+     "row_f1": 0.9332234130255563,
+     "balance_acc": 0.9381625441696113,
+     "narration_acc": 0.5600706713780919,
+     "statement_exact": 0.2,
+     "statement_exact_ci": [
+      0.056680947980693314,
+      0.5098431532792765
+     ],
+     "reconciled": 0.2,
+     "reconciled_ci": [
+      0.056680947980693314,
+      0.5098431532792765
+     ]
+    },
+    "F": {
+     "statements": 10,
+     "gold_rows": 602,
+     "pred_rows": 487,
+     "matched": 475,
+     "row_precision": 0.9753593429158111,
+     "row_recall": 0.7890365448504983,
+     "row_recall_ci": [
+      0.7546637013424726,
+      0.8197438665762704
+     ],
+     "row_f1": 0.8723599632690543,
+     "balance_acc": 0.911578947368421,
+     "narration_acc": 0.5284210526315789,
+     "statement_exact": 0.0,
+     "statement_exact_ci": [
+      0.0,
+      0.2775401687666166
+     ],
+     "reconciled": 0.0,
+     "reconciled_ci": [
+      0.0,
+      0.2775401687666166
+     ]
+    }
+   }
+  },
+  "statements": [
+   {
+    "gold_rows": 71,
+    "pred_rows": 71,
+    "matched": 70,
+    "balance_ok": 68,
+    "narration_ok": 52,
+    "exact": false,
+    "reconciled": false,
+    "id": "E000",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 75,
+    "pred_rows": 74,
+    "matched": 72,
+    "balance_ok": 67,
+    "narration_ok": 23,
+    "exact": false,
+    "reconciled": false,
+    "id": "E001",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 104,
+    "pred_rows": 104,
+    "matched": 100,
+    "balance_ok": 85,
+    "narration_ok": 36,
+    "exact": false,
+    "reconciled": false,
+    "id": "E002",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 34,
+    "pred_rows": 33,
+    "matched": 31,
+    "balance_ok": 25,
+    "narration_ok": 9,
+    "exact": false,
+    "reconciled": false,
+    "id": "E003",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 55,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "E004",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 45,
+    "pred_rows": 45,
+    "matched": 44,
+    "balance_ok": 41,
+    "narration_ok": 21,
+    "exact": false,
+    "reconciled": false,
+    "id": "E005",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 82,
+    "pred_rows": 82,
+    "matched": 81,
+    "balance_ok": 77,
+    "narration_ok": 48,
+    "exact": false,
+    "reconciled": false,
+    "id": "E006",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 27,
+    "pred_rows": 27,
+    "matched": 27,
+    "balance_ok": 27,
+    "narration_ok": 21,
+    "exact": true,
+    "reconciled": true,
+    "id": "E007",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 68,
+    "pred_rows": 68,
+    "matched": 68,
+    "balance_ok": 68,
+    "narration_ok": 47,
+    "exact": true,
+    "reconciled": true,
+    "id": "E008",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 74,
+    "pred_rows": 74,
+    "matched": 73,
+    "balance_ok": 73,
+    "narration_ok": 60,
+    "exact": false,
+    "reconciled": false,
+    "id": "E009",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 21,
+    "pred_rows": 21,
+    "matched": 21,
+    "balance_ok": 18,
+    "narration_ok": 8,
+    "exact": false,
+    "reconciled": false,
+    "id": "F000",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 29,
+    "pred_rows": 29,
+    "matched": 29,
+    "balance_ok": 28,
+    "narration_ok": 23,
+    "exact": false,
+    "reconciled": false,
+    "id": "F001",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 95,
+    "pred_rows": 74,
+    "matched": 71,
+    "balance_ok": 58,
+    "narration_ok": 26,
+    "exact": false,
+    "reconciled": false,
+    "id": "F002",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 57,
+    "pred_rows": 57,
+    "matched": 56,
+    "balance_ok": 53,
+    "narration_ok": 39,
+    "exact": false,
+    "reconciled": false,
+    "id": "F003",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 60,
+    "pred_rows": 60,
+    "matched": 57,
+    "balance_ok": 49,
+    "narration_ok": 17,
+    "exact": false,
+    "reconciled": false,
+    "id": "F004",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 106,
+    "pred_rows": 105,
+    "matched": 103,
+    "balance_ok": 101,
+    "narration_ok": 70,
+    "exact": false,
+    "reconciled": false,
+    "id": "F005",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 16,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "F006",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 96,
+    "pred_rows": 96,
+    "matched": 95,
+    "balance_ok": 89,
+    "narration_ok": 49,
+    "exact": false,
+    "reconciled": false,
+    "id": "F007",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 32,
+    "pred_rows": 30,
+    "matched": 28,
+    "balance_ok": 22,
+    "narration_ok": 8,
+    "exact": false,
+    "reconciled": false,
+    "id": "F008",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 90,
+    "pred_rows": 15,
+    "matched": 15,
+    "balance_ok": 15,
+    "narration_ok": 11,
+    "exact": false,
+    "reconciled": false,
+    "id": "F009",
+    "layout": "F"
+   }
+  ]
+ }
+}

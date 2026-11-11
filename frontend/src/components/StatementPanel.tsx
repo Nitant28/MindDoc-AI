@@ -22,6 +22,7 @@ const STATUS: Record<string, { tone: Tone; label: string; help: string }> = {
 
 const HYPOTHESIS: Record<string, string> = {
   follows_previous_error: 'Knock-on effect of an earlier flagged row',
+  amount_unreadable: 'Amount could not be read',
   direction_suspect: 'Debit/credit direction may be swapped',
   amount_ocr_suspect: 'Amount may be misread (one digit)',
   balance_ocr_suspect: 'Printed balance may be misread',
@@ -43,6 +44,7 @@ interface Inspect {
 
 const SOURCE_LABEL: Record<string, string> = {
   pdf_text: 'PDF text layer',
+  pdf_ocr: 'Scanned PDF (OCR)',
   aa_deposit: 'Account Aggregator deposit data',
 };
 
@@ -118,6 +120,7 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
 
   const st = data?.status ? (STATUS[data.status] ?? { tone: 'neutral' as Tone, label: data.status, help: '' }) : null;
   const fails = (data?.checks ?? []).filter((c) => c.status === 'fail');
+  const unreadableRows = (data?.checks ?? []).filter((c) => c.reason === 'balance_unreadable').map((c) => c.seq);
   const s = data?.summary;
 
   return (
@@ -193,6 +196,15 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
               {data.analysed_at ? ` · analysed ${relTime(data.analysed_at)}` : ''}
               {data.engine_version ? ` · engine ${data.engine_version}` : ''}
             </p>
+            {unreadableRows.length ? (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                Printed balance unreadable (row{unreadableRows.length === 1 ? '' : 's'} {unreadableRows.join(', ')}); checked
+                through the next readable balance.
+              </p>
+            ) : null}
+            {data.warnings?.length ? (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400">{data.warnings.join(' · ')}</p>
+            ) : null}
             {data.source ? (
               <p className="text-[11px] text-subtle">
                 Source: {SOURCE_LABEL[data.source.type] ?? data.source.type}
@@ -236,6 +248,9 @@ export default function StatementPanel({ documentId, autoLoad = false }: { docum
                             <li key={j}>
                               <span className="text-fg">{HYPOTHESIS[h.code] ?? h.code}</span>
                               {h.detail ? ` — ${h.detail}` : ''}
+                              {h.code === 'amount_unreadable' && typeof h.implied === 'number'
+                                ? `: ${formatMinor(h.implied)}${typeof h.direction === 'string' ? ` (${h.direction})` : ''}`
+                                : ''}
                             </li>
                           ))}
                         </ul>
