@@ -25,6 +25,9 @@ _AMOUNT_ROLES = ("debit", "credit", "amount", "balance")
 _TEXT_ROLES = ("date", "value_date", "narration", "ref", "drcr")
 _MONEY = re.compile(r"^\(?-?(?:₹|rs\.?|inr)?\d{1,3}(?:,\d{2,3})*(?:\.\d{2})\)?-?$|^\(?-?\d+\.\d{2}\)?-?$", re.I)
 _SUFFIX = re.compile(r"^\(?(cr|dr)\.?\)?$", re.I)
+# Bump when extraction or reconciliation output changes: stored analyses from older versions are recomputed.
+ENGINE_VERSION = "r3.1"
+
 _DATE_FORMATS = ["%d/%m/%y", "%d/%m/%Y", "%d-%m-%Y", "%d-%m-%y", "%d %b %Y", "%d %b %y", "%d-%b-%y", "%d-%b-%Y",
                  "%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d", "%d %B %Y"]
 

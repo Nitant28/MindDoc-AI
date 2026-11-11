@@ -27,7 +27,7 @@ Statuses: BUILT (code + tests + verified) · EXPERIMENTAL · IN PROGRESS · PLAN
 | R3 | Reconciliation with ranked diagnoses (row, segment, opening, closing; reversal pairs; direction inferred from balances; same-date reorder search over blocks up to 12 rows; knock-on failures point to their root row) — values never modified | BUILT | unit tests: dropped-digit amount, swapped direction, missing row, reversal pair, inferred direction, no-balance → `not_checkable`, inputs unchanged after reconcile |
 | R3 | `GET /documents/{id}/statement` + row-box page highlight (`/page/{n}/image?box=`) rendered with pypdfium2 (Apache-2.0/BSD) | BUILT | API test: reconciled, rows equal gold, box → PNG with 1 highlight, malformed box 422, bad page 404, other tenant 404; non-statement PDF → `is_statement: false` |
 | R3 | Statement panel on the document page (run, status, summary, failed checks with hypotheses, transactions, click a row → page with the row boxed) | BUILT | type-check, lint (0 errors), production build; **checked in a browser** on a local preview: a statement with one misprinted balance showed *Needs review*, row 21 ranked as a misread balance, row 22 labelled as its knock-on, and *View on page* boxed the correct row on page 1 |
-| R3 | Statement persistence (statement / txn / cell / check tables with RLS) and automatic detection on ingest | PLANNED | currently computed on demand from the stored original |
+| R3 | Statement persistence (migration 0003: `statements`, `statement_txns`, `reconciliation_checks`, BIGINT paise, forced RLS) and automatic analysis of statement-like PDFs after ingestion (`analyse_statement` job); the engine sets the document type to `bank_statement` | BUILT | `tests/test_statement_store.py`: stored once, reused, refreshed, removed with the document; a queued upload is ingested and then analysed by the worker. Migration up/down/up on a clean PostgreSQL database; forced-RLS test covers the new tables. SQLite **85 passed, 6 skipped**; PostgreSQL **91 passed**. Cell-level provenance and a `bank_account` entity are not built yet (R5 needs them) |
 | R3 | Account Aggregator JSON import (ADR-0015) | PLANNED | — |
 | R3 | StatementBench v1: fault injection for reconciliation/diagnosis (5 fault types × 300 histories per split) | BUILT | held-out test (scored once): false alarms **0/300**; detection and localisation **1.000** for every fault type; correct hypothesis listed ≥ **0.993**. Top-1 depends on the source prior because a misread amount and a missing row are indistinguishable from the balances alone (`benchmarks/reports/STATEMENTBENCH.md`). Row-level injection only |
 | R3 | Full test suite after the R3 changes | BUILT | SQLite **82 passed, 6 skipped** (PostgreSQL-only tests); PostgreSQL 16 **88 passed**; frontend type-check, lint (0 errors), production build |
@@ -36,7 +36,9 @@ Statuses: BUILT (code + tests + verified) · EXPERIMENTAL · IN PROGRESS · PLAN
 Known limitations introduced or remaining:
 - On the free Render demo the uploaded originals live on ephemeral disk; object storage is R9.
 - SQLite remains a single-user fallback without RLS or concurrent job claiming.
-- The document-type classifier has no bank-statement class: the preview statement was labelled *Invoice (47%)*. Statement
-  detection on ingest (R3, planned) should set the type from the statement engine rather than the classifier.
-- Statement analysis runs on demand from the stored original (≈0.5 s/page); results are not yet persisted.
+- The document-type classifier has no bank-statement class (the preview statement was first labelled *Invoice, 47%*).
+  The statement engine now overrides the type once its analysis finds transactions. Until that background job runs,
+  the classifier's label is shown.
+- The pre-check that queues statement analysis is a keyword test (balance + debit/credit vocabulary) on the first pages.
+  Its recall on real statements is unmeasured, but the panel can always run the analysis manually.
 - Local tests use PostgreSQL 16 / pgvector 0.6 (pgserver); CI uses PostgreSQL 18 / pgvector 0.8.7. No PG18-only SQL is used.

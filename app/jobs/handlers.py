@@ -22,3 +22,16 @@ def ingest_failed(db, job, error):
     if doc is not None:
         doc.status = "failed"
         doc.status_detail = error[:2000]
+
+
+@handler("analyse_statement")
+def analyse_statement(db, job):
+    from app.database.models import Document
+    from app.services import statements
+    doc = db.get(Document, job["payload"]["document_id"])
+    if doc is None:
+        return  # deleted meanwhile
+    try:
+        statements.analyse(db, doc)
+    except (ValueError, FileNotFoundError) as e:
+        raise queue.PermanentJobError(str(e)) from e

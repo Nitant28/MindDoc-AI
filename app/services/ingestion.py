@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.database.models import Case, CaseDocument, Document, DocumentChunk
 from app.ml import embeddings as emb
 from app.ml import insights, retrieval
+from app.services import statements
 from app.services.document_service import ParsedDocument, parse_document, validate_upload
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,7 @@ def ingest_parsed(db: Session, parsed: ParsedDocument, filename: str, tenant_id:
     else:
         knowledge.remove_document(db, tenant_id, doc.id)
         db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).delete(synchronize_session=False)
+        statements.clear(db, doc.id)  # re-processing invalidates the stored statement analysis
         for k, v in fields.items():
             setattr(doc, k, v)
         db.flush()
@@ -167,10 +169,26 @@ def ingest_parsed(db: Session, parsed: ParsedDocument, filename: str, tenant_id:
         db.rollback()
         logger.warning("Graph extraction failed for doc %s: %s", doc.id, e)
 
+    if filename.lower().endswith(".pdf") and statements.looks_like_statement(plain):
+        _queue_statement_analysis(db, doc)
+
     retrieval.invalidate(tenant_id)
     logger.info("Ingested %s (%d pages, %d chunks, type=%s) in %.0f ms", filename, len(parsed.pages), len(chunks),
                 doc_type, (time.perf_counter() - t0) * 1000)
     return doc
+
+
+def _queue_statement_analysis(db: Session, doc: Document) -> None:
+    """Statement-like PDFs get a background statement analysis (ADR-0011); failures never fail the ingestion."""
+    from app.jobs import queue
+    try:
+        queue.enqueue(db, doc.tenant_id, "analyse_statement", {"document_id": doc.id},
+                      idempotency_key=f"statement:{doc.id}:{doc.content_hash}:{statements.engine_version()}",
+                      subject_id=doc.id, max_attempts=2)
+        db.commit()
+    except Exception as e:  # pragma: no cover - queueing is best-effort here
+        db.rollback()
+        logger.warning("could not queue statement analysis for doc %s: %s", doc.id, e)
 
 
 def delete_document(db: Session, doc: Document):
@@ -181,6 +199,7 @@ def delete_document(db: Session, doc: Document):
             pass
     knowledge.remove_document(db, doc.tenant_id, doc.id)
     db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).delete(synchronize_session=False)
+    statements.clear(db, doc.id)
     db.delete(doc)
     db.commit()
     retrieval.invalidate(doc.tenant_id)

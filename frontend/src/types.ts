@@ -508,6 +508,10 @@ export interface StatementCheck {
 export interface StatementAnalysis {
   document_id: number;
   is_statement: boolean;
+  /** Statement-engine version that produced the stored result. */
+  engine_version?: string;
+  analysed_at?: string | null;
+  period?: { start: string | null; end: string | null };
   status?: 'reconciled' | 'reconciled_with_flags' | 'needs_review' | 'not_checkable' | string;
   currency?: string;
   header?: { ifsc?: string | null; account?: string | null };

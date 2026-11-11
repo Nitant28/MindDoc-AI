@@ -149,8 +149,10 @@ export const documentsApi = {
       .then((r) => r.data);
   },
   status: (id: number) => api.get<DocumentStatus>(`/documents/${id}/status`).then((r) => r.data),
-  statement: (id: number) =>
-    api.get<StatementAnalysis>(`/documents/${id}/statement`, { timeout: 120_000 }).then((r) => r.data),
+  statement: (id: number, refresh = false) =>
+    api
+      .get<StatementAnalysis>(`/documents/${id}/statement`, { params: { refresh: refresh || undefined }, timeout: 120_000 })
+      .then((r) => r.data),
   reprocess: (id: number) => api.post<DocumentStatus>(`/documents/${id}/reprocess`).then((r) => r.data),
   remove: (id: number) => api.delete<MessageResponse>(`/documents/delete/${id}`).then((r) => r.data),
   rename: (id: number, filename: string) =>

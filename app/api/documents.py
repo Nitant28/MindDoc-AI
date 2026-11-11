@@ -85,41 +85,26 @@ def document_status(doc_id: int, db: Session = Depends(get_db), user=Depends(get
 
 
 @router.get("/{doc_id}/statement")
-def statement_analysis(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def statement_analysis(doc_id: int, refresh: bool = False, db: Session = Depends(get_db),
+                       user=Depends(get_current_user)):
     """Bank-statement view (ADR-0011): transactions, reconciliation checks and diagnoses for a text-layer PDF.
 
-    Computed on demand from the stored original; values are never altered to make balances reconcile."""
-    from app.finance.statements import extract_statement
+    Served from the stored analysis; computed on first request (or `refresh=true`, or after an engine upgrade).
+    Values are never altered to make balances reconcile."""
+    from app.services import statements
     enforce_rate(query_limiter, user)
     doc = _own_doc(db, doc_id, user)
-    if not (doc.filename or "").lower().endswith(".pdf"):
-        raise HTTPException(status_code=422, detail="Statement analysis currently supports PDF statements")
-    if not doc.source_path or not Path(doc.source_path).exists():
-        raise HTTPException(status_code=404, detail="Original file is not available; upload it again")
     try:
-        res = extract_statement(Path(doc.source_path).read_bytes())
+        stmt = statements.get_or_analyse(db, doc, refresh=refresh)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception("statement extraction failed for %s: %s", doc_id, e)
+        db.rollback()
+        logger.exception("statement analysis failed for %s: %s", doc_id, e)
         raise HTTPException(status_code=500, detail="Statement analysis failed")
-    if not res.rows:
-        return {"document_id": doc.id, "is_statement": False, "warnings": res.warnings or ["no transactions found"]}
-    fails = [c for c in res.checks if c.status == "fail"]
-    return {
-        "document_id": doc.id, "is_statement": True, "status": res.status, "currency": "INR",
-        "header": res.header, "pages": res.pages, "warnings": res.warnings,
-        "summary": {"opening_minor": res.opening, "closing_minor": res.closing, "transactions": len(res.rows),
-                    "total_debit_minor": sum(r.debit for r in res.rows),
-                    "total_credit_minor": sum(r.credit for r in res.rows),
-                    "failed_checks": len(fails),
-                    "inferred_directions": sum(r.direction_source == "inferred_from_balance" for r in res.rows)},
-        "transactions": [{"seq": r.seq, "date": r.date, "narration": r.narration, "debit_minor": r.debit,
-                          "credit_minor": r.credit, "balance_minor": r.balance, "page": r.page,
-                          "direction_source": r.direction_source,
-                          "box": list(res.row_boxes.get(r.seq, ())[1:]) or None} for r in res.rows],
-        "checks": [{"scope": c.scope, "seq": c.seq, "status": c.status, "reason": c.reason,
-                    "expected_minor": c.expected, "observed_minor": c.observed, "diff_minor": c.diff,
-                    "hypotheses": c.hypotheses} for c in res.checks if c.status != "pass" or c.reason],
-    }
+    return statements.payload(db, stmt)
 
 
 @router.post("/{doc_id}/reprocess")

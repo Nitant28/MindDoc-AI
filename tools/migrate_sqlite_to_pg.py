@@ -19,7 +19,8 @@ from collections import defaultdict
 from sqlalchemy import MetaData, Table, create_engine, select, text
 
 ORDER = ["tenants", "users", "documents", "document_chunks", "entities", "entity_mentions", "relations",
-         "chat_sessions", "chat_messages", "saved_items", "query_logs", "cases", "case_documents", "audit_events"]
+         "chat_sessions", "chat_messages", "saved_items", "query_logs", "cases", "case_documents", "statements",
+         "statement_txns", "reconciliation_checks", "audit_events"]
 NO_RLS = {"tenants", "users"}
 ROLE = "minddoc_app"  # created by migration 0002
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { documentsApi, errorMessage } from '../api';
-import { formatMinor, type Tone } from '../lib/format';
+import { formatMinor, relTime, type Tone } from '../lib/format';
 import type { StatementAnalysis, StatementCheck, StatementTxn } from '../types';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
@@ -41,7 +41,8 @@ interface Inspect {
   url: string | null;
 }
 
-export default function StatementPanel({ documentId }: { documentId: number }) {
+/** `autoLoad`: the document is already known to be a statement, so show the stored analysis without a click. */
+export default function StatementPanel({ documentId, autoLoad = false }: { documentId: number; autoLoad?: boolean }) {
   const [data, setData] = useState<StatementAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,17 +50,22 @@ export default function StatementPanel({ documentId }: { documentId: number }) {
   const [inspect, setInspect] = useState<Inspect | null>(null);
   const toast = useToast();
 
-  const run = async () => {
+  const run = async (refresh = false) => {
     setLoading(true);
     setError(null);
     try {
-      setData(await documentsApi.statement(documentId));
+      setData(await documentsApi.statement(documentId, refresh));
     } catch (e) {
       setError(errorMessage(e, 'Statement analysis failed'));
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (autoLoad) void run(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoLoad, documentId]);
 
   const flaggedSeqs = useMemo(
     () => new Set((data?.checks ?? []).filter((c) => c.status === 'fail' && c.seq != null).map((c) => c.seq as number)),
@@ -112,7 +118,7 @@ export default function StatementPanel({ documentId }: { documentId: number }) {
         title="Bank statement"
         description="Transactions and balance reconciliation from the PDF text layer. Values are shown as printed; nothing is corrected."
         actions={
-          <Button size="sm" variant={data ? 'ghost' : 'primary'} icon={data ? 'refresh' : 'zap'} loading={loading} onClick={run}>
+          <Button size="sm" variant={data ? 'ghost' : 'primary'} icon={data ? 'refresh' : 'zap'} loading={loading} onClick={() => run(!!data)}>
             {loading ? 'Analysing…' : data ? 'Re-run' : 'Analyse as bank statement'}
           </Button>
         }
@@ -170,9 +176,12 @@ export default function StatementPanel({ documentId }: { documentId: number }) {
               {data.currency ?? 'INR'} · {data.pages ?? '—'} page{data.pages === 1 ? '' : 's'}
               {data.header?.ifsc ? ` · IFSC ${data.header.ifsc}` : ''}
               {data.header?.account ? ` · A/c ${data.header.account}` : ''}
+              {data.period?.start && data.period.end ? ` · ${data.period.start} to ${data.period.end}` : ''}
               {s.inferred_directions
                 ? ` · ${s.inferred_directions} direction${s.inferred_directions === 1 ? '' : 's'} inferred from balances`
                 : ''}
+              {data.analysed_at ? ` · analysed ${relTime(data.analysed_at)}` : ''}
+              {data.engine_version ? ` · engine ${data.engine_version}` : ''}
             </p>
 
             {fails.length ? (

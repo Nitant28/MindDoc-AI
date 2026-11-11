@@ -3,7 +3,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint,
+from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text,
+                        UniqueConstraint,
                         create_engine, event, inspect, text)
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker
@@ -295,6 +296,72 @@ class AuditEvent(Base):
     prev_hash = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+
+# ---------------------------------------------------------------- Bank statements (R3, ADR-0011; money per ADR-0010)
+
+class Statement(Base):
+    """Latest statement-engine result for one document. Amounts are integer minor units of `currency`."""
+    __tablename__ = "statements"
+    __table_args__ = (UniqueConstraint("document_id", name="uq_statement_document"),)
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    engine_version = Column(String, nullable=False)
+    status = Column(String, nullable=False)  # reconciled | reconciled_with_flags | needs_review | not_checkable | not_a_statement
+    currency = Column(String(3), nullable=False, default="INR")
+    ifsc = Column(String)
+    account_masked = Column(String)
+    opening_minor = Column(BigInteger)
+    closing_minor = Column(BigInteger)
+    period_start = Column(Date)
+    period_end = Column(Date)
+    pages = Column(Integer)
+    n_txns = Column(Integer, nullable=False, default=0)
+    total_debit_minor = Column(BigInteger, nullable=False, default=0)
+    total_credit_minor = Column(BigInteger, nullable=False, default=0)
+    failed_checks = Column(Integer, nullable=False, default=0)
+    inferred_directions = Column(Integer, nullable=False, default=0)
+    warnings = Column(Text)  # JSON list
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class StatementTxn(Base):
+    """One transaction exactly as read. box_* = row position on its page, tenths of a point, top-left origin."""
+    __tablename__ = "statement_txns"
+    __table_args__ = (UniqueConstraint("statement_id", "seq", name="uq_statement_txn_seq"),)
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    statement_id = Column(Integer, ForeignKey("statements.id", ondelete="CASCADE"), index=True, nullable=False)
+    seq = Column(Integer, nullable=False)
+    txn_date = Column(Date, index=True, nullable=False)
+    narration = Column(Text)
+    debit_minor = Column(BigInteger, nullable=False)
+    credit_minor = Column(BigInteger, nullable=False)
+    balance_minor = Column(BigInteger)
+    page = Column(Integer, nullable=False)
+    box_x0 = Column(Integer)
+    box_top = Column(Integer)
+    box_x1 = Column(Integer)
+    box_bottom = Column(Integer)
+    direction_source = Column(String, nullable=False)
+    amount_raw = Column(String)
+    balance_raw = Column(String)
+
+
+class ReconciliationCheck(Base):
+    """A non-trivial reconciliation check (failure, flag or reversal pair) with its ranked hypotheses (JSON)."""
+    __tablename__ = "reconciliation_checks"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    statement_id = Column(Integer, ForeignKey("statements.id", ondelete="CASCADE"), index=True, nullable=False)
+    scope = Column(String, nullable=False)
+    seq = Column(Integer)
+    status = Column(String, nullable=False)
+    reason = Column(String)
+    expected_minor = Column(BigInteger)
+    observed_minor = Column(BigInteger)
+    hypotheses = Column(Text)
 
 def _auto_migrate():
     """Add columns introduced after a table was created (SQLite has no create_all upgrades)."""
