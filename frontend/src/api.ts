@@ -30,6 +30,7 @@ import type {
   UploadResponse,
   VisionAnalysis,
   DocumentStatus,
+  StatementAnalysis,
 } from './types';
 
 const envUrl = import.meta.env.VITE_API_URL?.trim();
@@ -148,14 +149,17 @@ export const documentsApi = {
       .then((r) => r.data);
   },
   status: (id: number) => api.get<DocumentStatus>(`/documents/${id}/status`).then((r) => r.data),
+  statement: (id: number) =>
+    api.get<StatementAnalysis>(`/documents/${id}/statement`, { timeout: 120_000 }).then((r) => r.data),
   reprocess: (id: number) => api.post<DocumentStatus>(`/documents/${id}/reprocess`).then((r) => r.data),
   remove: (id: number) => api.delete<MessageResponse>(`/documents/delete/${id}`).then((r) => r.data),
   rename: (id: number, filename: string) =>
     api.put<MessageResponse>(`/documents/edit/${id}`, null, { params: { filename } }).then((r) => r.data),
   /** v2.1 pixel-level citation. Caller must URL.revokeObjectURL(result.url) when done. */
-  pageImage: async (id: number, page: number, chunkId?: number | null): Promise<PageImage> => {
+  /** `box` = [x0, top, x1, bottom] in tenths of a point (from /statement) highlights that exact region. */
+  pageImage: async (id: number, page: number, chunkId?: number | null, box?: number[] | null): Promise<PageImage> => {
     const r = await api.get<Blob>(`/documents/${id}/page/${page}/image`, {
-      params: { chunk_id: chunkId ?? undefined },
+      params: { chunk_id: chunkId ?? undefined, box: box && box.length === 4 ? box.join(',') : undefined },
       responseType: 'blob',
       timeout: 60_000,
     });

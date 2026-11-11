@@ -84,6 +84,44 @@ def document_status(doc_id: int, db: Session = Depends(get_db), user=Depends(get
                 "updated_at": job.updated_at}}
 
 
+@router.get("/{doc_id}/statement")
+def statement_analysis(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Bank-statement view (ADR-0011): transactions, reconciliation checks and diagnoses for a text-layer PDF.
+
+    Computed on demand from the stored original; values are never altered to make balances reconcile."""
+    from app.finance.statements import extract_statement
+    enforce_rate(query_limiter, user)
+    doc = _own_doc(db, doc_id, user)
+    if not (doc.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=422, detail="Statement analysis currently supports PDF statements")
+    if not doc.source_path or not Path(doc.source_path).exists():
+        raise HTTPException(status_code=404, detail="Original file is not available; upload it again")
+    try:
+        res = extract_statement(Path(doc.source_path).read_bytes())
+    except Exception as e:
+        logger.exception("statement extraction failed for %s: %s", doc_id, e)
+        raise HTTPException(status_code=500, detail="Statement analysis failed")
+    if not res.rows:
+        return {"document_id": doc.id, "is_statement": False, "warnings": res.warnings or ["no transactions found"]}
+    fails = [c for c in res.checks if c.status == "fail"]
+    return {
+        "document_id": doc.id, "is_statement": True, "status": res.status, "currency": "INR",
+        "header": res.header, "pages": res.pages, "warnings": res.warnings,
+        "summary": {"opening_minor": res.opening, "closing_minor": res.closing, "transactions": len(res.rows),
+                    "total_debit_minor": sum(r.debit for r in res.rows),
+                    "total_credit_minor": sum(r.credit for r in res.rows),
+                    "failed_checks": len(fails),
+                    "inferred_directions": sum(r.direction_source == "inferred_from_balance" for r in res.rows)},
+        "transactions": [{"seq": r.seq, "date": r.date, "narration": r.narration, "debit_minor": r.debit,
+                          "credit_minor": r.credit, "balance_minor": r.balance, "page": r.page,
+                          "direction_source": r.direction_source,
+                          "box": list(res.row_boxes.get(r.seq, ())[1:]) or None} for r in res.rows],
+        "checks": [{"scope": c.scope, "seq": c.seq, "status": c.status, "reason": c.reason,
+                    "expected_minor": c.expected, "observed_minor": c.observed, "diff_minor": c.diff,
+                    "hypotheses": c.hypotheses} for c in res.checks if c.status != "pass" or c.reason],
+    }
+
+
 @router.post("/{doc_id}/reprocess")
 def reprocess_document(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Queue a fresh processing run (e.g. after a failure or a parser upgrade)."""
@@ -119,13 +157,26 @@ def get_document(doc_id: int, db: Session = Depends(get_db), user=Depends(get_cu
 
 
 @router.get("/{doc_id}/page/{page}/image")
-def page_image(doc_id: int, page: int, chunk_id: Optional[int] = None, db: Session = Depends(get_db),
-               user=Depends(get_current_user)):
-    """Rendered page with the cited chunk highlighted (pixel-level citation)."""
+def page_image(doc_id: int, page: int, chunk_id: Optional[int] = None, box: Optional[str] = None,
+               db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Rendered page with the cited chunk highlighted (pixel-level citation). `box=x0,top,x1,bottom` (tenths of a
+    point, as returned by /statement) highlights an exact region instead, e.g. one transaction row."""
     doc = _own_doc(db, doc_id, user)
     src = Path(doc.source_path) if doc.source_path else None
     if not src or not src.is_file() or src.suffix.lower() != ".pdf":
         raise HTTPException(status_code=404, detail="Original page not available for this document")
+    if box:
+        try:
+            x0, top, x1, bottom = (int(v) for v in box.split(","))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="box must be four integers: x0,top,x1,bottom")
+        try:
+            png, n = highlight.render_pdf_page_boxes(str(src), page, [(x0 / 10, top / 10, x1 / 10, bottom / 10)])
+        except IndexError:
+            raise HTTPException(status_code=404, detail="Page not found")
+        return Response(content=png, media_type="image/png",
+                        headers={"X-Highlight-Boxes": str(n), "Access-Control-Expose-Headers": "X-Highlight-Boxes",
+                                 "Cache-Control": "private, max-age=300"})
     passage = None
     if chunk_id:
         chunk = db.query(DocumentChunk).filter(DocumentChunk.id == chunk_id,

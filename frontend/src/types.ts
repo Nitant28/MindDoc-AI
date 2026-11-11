@@ -479,3 +479,49 @@ export interface DocumentStatus {
     updated_at?: string | null;
   } | null;
 }
+
+/** GET /documents/{id}/statement — bank-statement engine output (amounts in paise). */
+export interface StatementTxn {
+  seq: number;
+  date: string;
+  narration: string;
+  debit_minor: number;
+  credit_minor: number;
+  balance_minor: number | null;
+  page: number;
+  direction_source: 'column' | 'suffix' | 'inferred_from_balance' | 'unknown' | string;
+  /** x0, top, x1, bottom in tenths of a point (for the page highlight). */
+  box: number[] | null;
+}
+
+export interface StatementCheck {
+  scope: 'row' | 'statement' | 'opening' | string;
+  seq: number | null;
+  status: 'pass' | 'fail' | 'not_checkable' | string;
+  reason: string;
+  expected_minor: number | null;
+  observed_minor: number | null;
+  diff_minor: number | null;
+  hypotheses: Array<{ code: string; detail: string; [k: string]: unknown }>;
+}
+
+export interface StatementAnalysis {
+  document_id: number;
+  is_statement: boolean;
+  status?: 'reconciled' | 'reconciled_with_flags' | 'needs_review' | 'not_checkable' | string;
+  currency?: string;
+  header?: { ifsc?: string | null; account?: string | null };
+  pages?: number;
+  warnings?: string[];
+  summary?: {
+    opening_minor: number | null;
+    closing_minor: number | null;
+    transactions: number;
+    total_debit_minor: number;
+    total_credit_minor: number;
+    failed_checks: number;
+    inferred_directions: number;
+  };
+  transactions?: StatementTxn[];
+  checks?: StatementCheck[];
+}
