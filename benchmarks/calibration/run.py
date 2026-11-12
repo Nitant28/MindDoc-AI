@@ -5,7 +5,7 @@
     python -m benchmarks.calibration.run eval benchmarks/reports/hbsynth-test-minilm-<date>.json
 
 Inputs are hallucination-runner reports (config "rules": every issue with its severity, coverage, similarity,
-derivations). `fit` estimates an L2-regularised logistic model of P(supported) on dev reports only and freezes it in
+derivations). `fit` estimates an L2-regularised logistic model of P(supported) on non-held-out reports only and freezes it in
 model.json (commit it before scoring the test split). `eval` applies the frozen model to a held-out report and
 reports ECE (10 equal-width bins), adaptive ECE (10 equal-mass bins), Brier score and log loss, with 95% intervals
 from a bootstrap over documents (1,000 resamples, seed 0), plus the reliability table.

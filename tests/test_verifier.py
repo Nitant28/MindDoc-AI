@@ -137,3 +137,51 @@ def test_wording_fixes():
     audit = "The auditor issued a qualified opinion on the FY 2023-24 statements of Sunrise Traders Pvt Ltd."
     assert "party" not in kinds("The auditor qualified its opinion on Sunrise Traders' FY 2023-24 statements.", audit)
     assert "party" not in kinds("The processing fee is INR 3,12,500.", "The processing fee is ₹3,12,500.")
+
+
+# ------------------------------------------------------------------------------- R6 fixes found on HB-Synth v1 test
+
+FIN_TABLE = ("Key financials of Tapti Infra Pvt Ltd (₹ crore)\nParticulars | FY 2022-23 | FY 2023-24\n"
+             "Revenue from operations | 28.30 | 35.70\nNet profit | 1.90 | 1.10\nCurrent ratio | 1.30 | 1.17")
+
+
+def test_relevance_gate_counts_verified_values():
+    src = "Sanction letter dated 01/10/2024. Tenure: 60 months. Rate of interest: 11% p.a."
+    assert "unsupported_content" not in kinds("The facility has a tenure of 5 years.", src)
+    assert "unsupported_content" in kinds("The bank demanded a pledge of shares as extra security.", src)
+
+
+def test_label_before_a_colon_names_the_figure():
+    src = "Fair market value: Rs 6,00,00,000. Distress sale value: Rs 4,50,00,000."
+    assert "number" not in kinds("The distress value is roughly 25% below the fair market value.", src)
+    assert "number" in kinds("The distress value is roughly 40% below the fair market value.", src)
+
+
+def test_tables_in_lakh_or_crore_are_scaled():
+    assert "number" not in kinds("Revenue was ₹35.7 crore in FY 2023-24.", FIN_TABLE)
+    assert "number" in kinds("Revenue was ₹35.7 lakh in FY 2023-24.", FIN_TABLE)
+    assert "number" not in kinds("The current ratio was 1.17 in FY 2023-24.", FIN_TABLE)   # ratios are not scaled
+    assert "number" not in kinds("Revenue increased by ₹7.4 crore.", FIN_TABLE)
+    assert "arithmetic" in kinds("Net profit increased to ₹1.1 crore in FY 2023-24.", FIN_TABLE)
+    assert "arithmetic" not in kinds("Net profit fell to ₹1.1 crore in FY 2023-24.", FIN_TABLE)
+
+
+def test_a_one_percent_share_must_be_named():
+    src = "Sanctioned amount: ₹6,00,00,000. Processing fee: 1% of the sanctioned amount."
+    assert "number" in kinds("The sanctioned amount is ₹6 lakh.", src)       # a lakh/crore slip, not the fee
+    assert "number" not in kinds("The processing fee is ₹6 lakh.", src)
+
+
+def test_intervals_respect_the_claims_unit():
+    src = "Appointed on 10 February 2017 and ceased on 2 October 2017."
+    assert "number" in kinds("The directorship lasted roughly 35 months.", src)
+    assert "number" not in kinds("The directorship lasted about 8 months.", src)
+
+
+def test_intervals_use_the_day_first_reading_and_ratios_ignore_period_words():
+    src = "Company | Appointed | Ceased\nAravali Traders Pvt Ltd | 12-11-2021 | 12-01-2024"
+    assert "number" in kinds("The directorship lasted roughly 35 months.", src)     # not 12 Nov 2021 to 1 Dec 2024
+    assert "number" not in kinds("The directorship lasted about 26 months.", src)
+    lease = "Rent: Rs 2,40,000 per month, escalating 10% annually. Security deposit: Rs 24,00,000 (refundable)."
+    assert not kinds("The deposit is 10 times the monthly rent.", lease) & {"number", "frequency"}
+    assert "number" in kinds("The deposit is 12 times the monthly rent.", lease)

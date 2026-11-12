@@ -106,6 +106,7 @@ class _Date:
     m: Optional[int]
     d: Optional[int]
     fy: Optional[tuple] = None
+    alt: bool = False  # the month-first reading of an ambiguous numeric date (12-01-2024 as 1 December)
 
     def label(self) -> str:
         if self.fy:
@@ -152,7 +153,7 @@ def extract_dates(text: str) -> tuple[list[tuple[set, str]], str]:
                     a, b, y = int(g[0]), int(g[1]), int(g[2])
                     readings = {_Date(y, b, a)} if b <= 12 else set()
                     if a <= 12:
-                        readings.add(_Date(y, a, b))
+                        readings.add(_Date(y, a, b, alt=b <= 12))
                     if not readings:
                         continue
                 elif kind == "my":
@@ -446,6 +447,12 @@ class Verdict:
 REVIEW_KINDS = {"negation", "direction", "roles", "nli"}
 
 
+# Words that only frame a figure ("comes to", "works out to", "is worth", "totals", "stands at", "roughly"): they
+# carry no fact of their own, so the relevance gate does not count them against the claim.
+_FRAMING = content_words("come comes came worth total totals totalled start starts started stand stands stood "
+                         "work works add adds added about approximately around roughly nearly almost")
+
+
 def nearest_freq(text: str, pos: int, window: int = 40) -> Optional[str]:
     best, dist = None, window + 1
     for kind, rx in _FREQ_RE.items():
@@ -515,44 +522,52 @@ def check_claim(claim: str, sources: list[str], *, similarity: Optional[float] =
             logger.debug("sentence similarity unavailable: %s", e)
     v.similarity = similarity
 
-    # ---- relevance gate (v1 behaviour, kept): enough of the claim's content must come from the source
     cw, sw = content_words(claim), content_words(source)
-    v.coverage = len(cw & sw) / max(1, len(cw))
-    topical = v.coverage >= 0.6 or (similarity is not None and similarity >= sim_threshold)
-    if cw and not topical:
-        missing = sorted(cw - sw)[:4]
-        v.add("unsupported_content", "most of this sentence is not in the source"
-              + (f" (e.g. {', '.join(missing)})" if missing else ""))
+    n_values = ok_values = 0  # concrete values in the claim (dates, identifiers, figures) and how many check out
+    unit_words: set[str] = set()  # the unit of a verified duration ("5 years") is part of that value
 
     # ---- dates
     c_dates, c_masked = extract_dates(claim)
     s_dates, s_masked = extract_dates(source)
     s_readings = [r for rs, _ in s_dates for r in rs]
     for readings, surface in c_dates:
+        n_values += 1
         if not any(_date_matches(c, e) for c in readings for e in s_readings):
             v.add("date", f"“{surface}” does not appear in the source")
+        else:
+            ok_values += 1
 
     # ---- identifiers
     c_ids, c_masked = extract_identifiers(c_masked)
     s_ids, s_masked = extract_identifiers(s_masked)
     s_id_digits = {re.sub(r"\D", "", i) for i in s_ids}
     for ident in c_ids:
+        n_values += 1
         if ident not in s_ids and not (ident.isdigit() and ident in s_id_digits):
             v.add("identifier", f"“{ident.upper() if not ident.isdigit() else ident}” does not match the source")
+        else:
+            ok_values += 1
 
     # ---- numbers (amounts, percentages, counts): printed in the source, or recomputed from its figures
     c_nums, s_nums = extract_numbers(c_masked), extract_numbers(s_masked)
     tables = recompute.parse_tables(source)
     c_figs = recompute.figures(c_masked, c_nums, content_words, nearest_freq)
     s_figs = recompute.figures(s_masked, s_nums, content_words, nearest_freq, tables)
-    full = sorted({(r.y, r.m, r.d) for r in s_readings if r.y and r.m and r.d})
+    # intervals use the day-first (Indian) reading only: an alternative reading must not anchor arithmetic
+    full = sorted({(r.y, r.m, r.d) for r in s_readings if r.y and r.m and r.d and not r.alt})
     extras = recompute.column_totals(tables) + recompute.date_intervals(full)
     for n, f in zip(c_nums, c_figs):
+        n_values += 1
         tol = 0.05 if n.approx else 1e-6
-        if not f.ratio_phrase and any(_close(n.value, s.value, tol) for s in s_nums if s.pct == n.pct):
+        # compare with the passage's figures as read (a "₹ in lakh" table cell is its rupee value)
+        if not f.ratio_phrase and any(_close(n.value, float(s.value), tol) for s in s_figs if s.pct == n.pct):
+            ok_values += 1
+            unit_words |= content_words(f"{f.unit} {f.unit}s") if f.unit else set()
             continue
         why = recompute.derive(f, s_figs, claim, cw, extras)
         if why:
+            ok_values += 1
+            unit_words |= content_words(f"{f.unit} {f.unit}s") if f.unit else set()
             v.derivations.append(f"“{n.text}”: {why}")
             continue
         v.add("number", f"“{n.text}” is not in the source" + (" (not within 5% either)" if n.approx else ""))
@@ -570,16 +585,27 @@ def check_claim(claim: str, sources: list[str], *, similarity: Optional[float] =
             break
 
     # ---- change arithmetic: rose/fell against the figures themselves
-    why = recompute.from_to_contradiction(c_masked, c_figs, s_masked, s_figs)
+    why = recompute.from_to_contradiction(c_masked, c_figs, s_masked, s_figs, tables)
     if why:
         v.add("arithmetic", why)
 
+    # ---- relevance gate: enough of the claim must come from the source. Values that check out (a date, a figure
+    # printed or recomputed) count as covered content, so "The facility has a tenure of 5 years" is not rejected
+    # for one unmatched word when "Tenure: 60 months" is in the passage.
+    cw_cov = cw - (unit_words - sw) - _FRAMING
+    v.coverage = (len(cw_cov & sw) + ok_values) / max(1, len(cw_cov) + n_values)
+    topical = v.coverage >= 0.6 or (similarity is not None and similarity >= sim_threshold)
+    if cw and not topical:
+        missing = sorted(cw - sw)[:4]
+        v.add("unsupported_content", "most of this sentence is not in the source"
+              + (f" (e.g. {', '.join(missing)})" if missing else ""))
+
     # ---- frequency bound to a number ("₹3,25,000 per month" vs "per year")
-    for n in c_nums:
+    for n, f in zip(c_nums, c_figs):
         cf = nearest_freq(c_masked, n.pos)
-        if not cf:
+        if not cf or f.ratio_phrase:  # "10 times the monthly rent": "monthly" belongs to the rent, not to 10
             continue
-        occ = [s for s in s_nums if _close(s.value, n.value, 0.05 if n.approx else 1e-6)]
+        occ = [s for s in s_nums if s.pct == n.pct and _close(s.value, n.value, 0.05 if n.approx else 1e-6)]
         sf = {nearest_freq(s_masked, s.pos) for s in occ} - {None}
         if sf and cf not in sf:
             v.add("frequency", f"the claim says {cf} for “{n.text}”, the source says {', '.join(sorted(sf))}")

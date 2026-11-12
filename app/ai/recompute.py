@@ -18,7 +18,9 @@ Rounding: an exact claim must match to the paisa; a percentage may be rounded to
 "about/roughly" allows 5% on amounts and counts and one percentage point on percentages.
 
 Tables (pipe or Markdown) are read with the bank-statement header lexicon (app/finance/statement_lexicon.json), so
-"Withdrawals (Dr)" is a debit column. Two value-level checks use the passage's figures:
+"Withdrawals (Dr)" is a debit column. A table titled or headed "₹ in lakh" / "(₹ crore)" has its amount cells scaled
+(not its rate, ratio, tenor, count or share columns and rows), and a table with two or more year columns gives a
+from → to pair per row. Two value-level checks use the passage's figures:
 
   flow          an amount that sits only in a debit (credit) column, or that the passage says was debited/withdrawn
                 (credited/deposited), must not be described as coming in (going out)
@@ -47,6 +49,25 @@ class Table:
     roles: list[Optional[str]]
     rows: dict[int, list[str]] = field(default_factory=dict)  # line index -> cells
     leading_pipe: dict[int, bool] = field(default_factory=dict)  # "| a | b |" vs "a | b"
+    scale: Optional[Decimal] = None   # amounts printed in lakh/crore/... ("₹ in lakh")
+    periods: list[tuple[int, int]] = field(default_factory=list)  # (column, year) for FY/year columns
+
+
+_TABLE_SCALE = re.compile(r"(?:₹|\brs\.?|\binr)\s*(?:in\s+)?(lakhs?|lacs?|crores?|millions?|thousands?)\b", re.I)
+_SCALE_FACTOR = {"lakh": D(10) ** 5, "lac": D(10) ** 5, "crore": D(10) ** 7, "million": D(10) ** 6,
+                 "thousand": D(10) ** 3}
+# columns and rows whose numbers are not amounts, so a table's "₹ in lakh" does not apply to them
+_NOT_AMOUNT = re.compile(r"%|\b(?:percent|rates?|ratios?|times|months?|years?|days?|tenor|tenure|number|qty|"
+                         r"quantity|units?|shares?)\b|\bno\.", re.I)
+_PERIOD_HEAD = re.compile(r"\bFY\s?(\d{4})|\b((?:19|20)\d{2})\b", re.I)
+
+
+def _scale_of(text: str) -> Optional[Decimal]:
+    m = _TABLE_SCALE.search(text)
+    if not m:
+        return None
+    word = m.group(1).lower().rstrip("s")
+    return _SCALE_FACTOR.get(word)
 
 
 _SEP_CELL = re.compile(r"^:?-{2,}:?$")
@@ -66,7 +87,8 @@ def parse_tables(text: str) -> list[Table]:
     """Pipe-delimited tables ("a | b | c" or Markdown "| a | b |") whose first row is a header of words."""
     tables: list[Table] = []
     cur: Optional[Table] = None
-    for i, line in enumerate(text.splitlines()):
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
         if line.count("|") < 2:
             cur = None
             continue
@@ -74,9 +96,15 @@ def parse_tables(text: str) -> list[Table]:
         if all(not c or _SEP_CELL.match(c) for c in cells):
             continue  # Markdown separator row
         if cur is None:
-            wordy = sum(bool(re.search(r"[A-Za-z]", c)) and not re.search(r"\d{2}", c) for c in cells)
-            if len(cells) >= 3 and wordy >= len(cells) - 1:
+            # a header names columns: no cell is a number or a "Label: value" pair, and most cells have words
+            wordy = sum(bool(re.search(r"[A-Za-z]", c)) for c in cells)
+            if len(cells) >= 3 and wordy >= len(cells) - 1 and not any(":" in c for c in cells) \
+                    and not any(_cell_value(c) is not None for c in cells):
                 cur = Table(cells, [header_role(c) for c in cells])
+                cur.scale = _scale_of(" ".join(cells)) or _scale_of(" ".join(lines[max(0, i - 2):i]))
+                years = [(k, int(m.group(1) or m.group(2))) for k, c in enumerate(cells)
+                         if (m := _PERIOD_HEAD.search(c))]
+                cur.periods = sorted(years, key=lambda kv: kv[1]) if len(years) >= 2 else []
                 tables.append(cur)
             continue
         if len(cells) == len(cur.header):
@@ -95,14 +123,20 @@ def _cell_value(cell: str) -> Optional[Decimal]:
         return None
 
 
-def column_totals(tables: list[Table]) -> list[tuple[Decimal, str]]:
+def _scaled(t: Table, k: int, cells: list[str]) -> bool:
+    """Does the table's "₹ in lakh" apply to this cell?"""
+    return bool(t.scale) and not _NOT_AMOUNT.search(t.header[k]) and not _NOT_AMOUNT.search(cells[0])
+
+
+def column_totals(tables: list[Table]) -> list[tuple[Decimal, str, Optional[str]]]:
     out = []
     for t in tables:
         for k, role in enumerate(t.roles):
             if role in ("debit", "credit"):
-                vals = [v for cells in t.rows.values() if (v := _cell_value(cells[k])) is not None]
+                vals = [v * (t.scale if _scaled(t, k, cells) else 1) for cells in t.rows.values()
+                        if (v := _cell_value(cells[k])) is not None]
                 if len(vals) >= 2:
-                    out.append((sum(vals), f"total of the {t.header[k]} column = {fmt(sum(vals), True)}"))
+                    out.append((sum(vals), f"total of the {t.header[k]} column = {fmt(sum(vals), True)}", None))
     return out
 
 
@@ -124,6 +158,9 @@ class Fig:
     header: Optional[str] = None
     per_unit: bool = False           # a rate per item ("₹64,000 per tonne"), not per period
     ratio_phrase: bool = False       # a measure of something else ("six months' rent")
+    line: int = -1
+    col: Optional[int] = None        # table column index
+    scaled: bool = False             # value multiplied by the table's "₹ in lakh/crore"
 
 
 _MONEY_BEFORE = re.compile(r"(?:₹|\brs\.?|\binr)\s*$", re.I)
@@ -134,7 +171,7 @@ _UNIT_AFTER = re.compile(
 _UNIT_NAME = {"quarterly": "quarter", "monthly": "month", "half-yearly": "half", "yearly": "year", "annual": "year",
               "weekly": "week"}
 _PER_UNIT = re.compile(r"^\s*(?:per|a|an|each|/)\s+(?!month|year|annum|quarter|week|day|fortnight)[a-z]+", re.I)
-_RATIO_PHRASE = re.compile(r"^[\s-]*(?:days|weeks|months|years)'\s+(?:\w+\s+)?[a-z]+", re.I)
+_RATIO_PHRASE = re.compile(r"^[\s-]*(?:(?:days|weeks|months|years)'\s+(?:\w+\s+)?[a-z]+|times\b)", re.I)
 _IN_MONTHS = {"month": 1, "quarter": 3, "half": 6, "year": 12}
 _IN_DAYS = {"day": 1, "week": 7}
 
@@ -169,22 +206,25 @@ def figures(text: str, nums: list, words: Callable[[str], set], freq: Callable[[
         pos, tx = n.pos, n.text
         line_no = text.count("\n", 0, pos)
         line_start = text.rfind("\n", 0, pos) + 1
-        column = header = None
+        column = header = col = None
         label: set = set()
+        scale = None
         if line_no in by_line:
             t, cells = by_line[line_no]
             line = text[line_start:text.find("\n", pos) if "\n" in text[pos:] else len(text)]
             k = line[:pos - line_start].count("|") - (1 if t.leading_pipe.get(line_no) else 0)
             if 0 <= k < len(t.roles):
-                column, header = t.roles[k], t.header[k]
+                column, header, col = t.roles[k], t.header[k], k
                 label |= words(t.header[k])
+                if _scaled(t, k, cells) and not _SCALE_WORD.search(tx) and not n.pct:
+                    scale = t.scale
             label |= words(cells[0])
             for j, role in enumerate(t.roles):
                 if role == "narration":
                     label |= words(cells[j])
         else:
             seg = text[line_start:pos]
-            cut = max(seg.rfind(". "), seg.rfind("; "), seg.rfind(": "))
+            cut = max(seg.rfind(". "), seg.rfind("; "))  # "Fair market value: Rs 6 crore" keeps its label
             sentence = seg[cut + 2:] if cut >= 0 else seg
             last_digit = max((m.end() for m in re.finditer(r"\d", sentence)), default=0)
             window = " ".join(sentence[last_digit:].split()[-8:])
@@ -200,9 +240,12 @@ def figures(text: str, nums: list, words: Callable[[str], set], freq: Callable[[
         money = (bool(_MONEY_BEFORE.search(text[max(0, pos - 6):pos])) or bool(_SCALE_WORD.search(tx))
                  or bool(re.search(r"\d,\d", tx)) or column in ("debit", "credit", "balance", "amount"))
         value = to_decimal(n.value)
+        if scale:
+            value, money = value * scale, True
+            tx = f"{tx} ({header or 'table'}, ₹ × {fmt(scale, False)})"
         out.append(Fig(value, n.pct, n.approx, tx, pos, decimals, money and not n.pct, unit, freq(text, pos),
                        frozenset(label), column, header, bool(money and _PER_UNIT.match(after)),
-                       bool(_RATIO_PHRASE.match(after))))
+                       bool(_RATIO_PHRASE.match(after)), line_no, col, bool(scale)))
     return out
 
 
@@ -237,8 +280,8 @@ def _same_duration(a: Decimal, ua: str, b: Decimal, ub: str) -> bool:
     return False
 
 
-def date_intervals(full_dates: list[tuple[int, int, int]]) -> list[tuple[Decimal, str]]:
-    """Intervals between full dates in the passage, in days, weeks, months and years (v2 behaviour)."""
+def date_intervals(full_dates: list[tuple[int, int, int]]) -> list[tuple[Decimal, str, Optional[str]]]:
+    """Intervals between full dates in the passage, in days, weeks, months and years, each with its unit."""
     out = []
     for i, a in enumerate(full_dates):
         for b in full_dates[i + 1:]:
@@ -247,15 +290,15 @@ def date_intervals(full_dates: list[tuple[int, int, int]]) -> list[tuple[Decimal
             except ValueError:
                 continue
             span = f"between {date(*a).isoformat()} and {date(*b).isoformat()}"
-            out += [(D(days), f"{days} days {span}"),
-                    (to_decimal(round(days / 30.44, 1)), f"about {round(days / 30.44, 1)} months {span}"),
-                    (to_decimal(round(days / 7, 1)), f"about {round(days / 7, 1)} weeks {span}"),
-                    (to_decimal(round(days / 365.25, 1)), f"about {round(days / 365.25, 1)} years {span}")]
+            out += [(D(days), f"{days} days {span}", "day"),
+                    (to_decimal(round(days / 30.44, 1)), f"about {round(days / 30.44, 1)} months {span}", "month"),
+                    (to_decimal(round(days / 7, 1)), f"about {round(days / 7, 1)} weeks {span}", "week"),
+                    (to_decimal(round(days / 365.25, 1)), f"about {round(days / 365.25, 1)} years {span}", "year")]
     return out
 
 
 def derive(c: Fig, src: list[Fig], claim: str, claim_words: set,
-           extras: list[tuple[Decimal, str]] = ()) -> Optional[str]:
+           extras: list[tuple[Decimal, str, Optional[str]]] = ()) -> Optional[str]:
     """A derivation of claim figure `c` from the passage's figures, or None."""
     def close(x: Decimal) -> bool:
         tol = abs(c.value) * D("0.05") if c.approx else D("0.005")
@@ -307,7 +350,9 @@ def derive(c: Fig, src: list[Fig], claim: str, claim_words: set,
                 if close(abs(a.value - b.value)):
                     return f"{a.text} − {b.text} = {fmt(abs(a.value - b.value), a.money or b.money)}"
 
-    for x, why in extras:
+    for x, why, unit in extras:
+        if unit and c.unit and unit != c.unit:
+            continue  # "35 months" is not an interval of 33.4 weeks
         if close(x):
             return why
 
@@ -316,16 +361,23 @@ def derive(c: Fig, src: list[Fig], claim: str, claim_words: set,
         # a count of items (not a duration) times a per-item rate: "12 bales at ₹96,000 per bale"
         counts = [s for s in plain if not s.money and not s.unit and s.value == s.value.to_integral_value()
                   and 0 < s.value < 100000]
-        bases = [(m.value, m.text) for m in money]
-        bases += [(k.value * m.value, f"{k.text} × {m.text}") for k in counts for m in money if m.per_unit][:300]
-        for bv, bt in bases[len(money):]:
+        bases = [(m.value, m.text, m.label) for m in money]
+        bases += [(k.value * m.value, f"{k.text} × {m.text}", m.label | k.label)
+                  for k in counts for m in money if m.per_unit][:300]
+        for bv, bt, _ in bases[len(money):]:
             if close(bv):
                 return f"{bt} = {fmt(bv, True)}"
         for p in pcts:
-            for bv, bt in bases:
+            # 1% (or 10%, 0.1%) of a figure is also what a lakh/crore slip of that figure looks like: then the claim
+            # must name the percentage itself ("processing fee"), not just the base
+            power_of_ten = p.value in (D("0.01"), D("0.1"), D(1), D(10))
+            for bv, bt, blabel in bases:
                 share = bv * p.value / HUNDRED
-                if close(share):
+                named = claim_words & p.label if power_of_ten else claim_words & (p.label | blabel)
+                if close(share) and named:
                     return f"{p.text} of {bt} = {fmt(share, True)}"
+                if power_of_ten and not claim_words & p.label:
+                    continue
                 if close(bv + share):
                     return f"{bt} + {p.text} = {fmt(bv + share, True)}"
                 if close(bv - share):
@@ -446,12 +498,29 @@ def moves(text: str, figs: list[Fig]) -> list[tuple[str, Optional[Fig], Optional
     return out
 
 
-def from_to_contradiction(claim: str, c_figs: list[Fig], source: str, s_figs: list[Fig]) -> Optional[str]:
+def table_moves(tables: list[Table], s_figs: list[Fig]) -> list[tuple[Fig, Fig]]:
+    """Earliest → latest year column, per row of a table with two or more year columns."""
+    out = []
+    for t in tables:
+        if not t.periods:
+            continue
+        first, last = t.periods[0][0], t.periods[-1][0]
+        for line_no in t.rows:
+            a = next((f for f in s_figs if f.line == line_no and f.col == first), None)
+            b = next((f for f in s_figs if f.line == line_no and f.col == last), None)
+            if a and b:
+                out.append((a, b))
+    return out
+
+
+def from_to_contradiction(claim: str, c_figs: list[Fig], source: str, s_figs: list[Fig],
+                          tables: Optional[list[Table]] = None) -> Optional[str]:
     def same(f: Fig, g: Fig) -> bool:
         tol = abs(f.value) * D("0.05") if f.approx else D("0.005")
         return f.pct == g.pct and abs(f.value - g.value) <= tol
 
     src_pairs = [(a, b) for _, a, b, _, _ in moves(source, s_figs) if a and b and a.pct == b.pct]
+    src_pairs += table_moves(tables or [], s_figs)
     for d, a, b, x, _ in moves(claim, c_figs):
         word = "rose" if d == "up" else "fell"
         if a and b and a.pct == b.pct and a.value != b.value:
