@@ -111,3 +111,28 @@ held-out set.
    above) is still required by J_ROADMAP R6 and is an owner action.
 2. **Generated text is regular.** Real LLM answers mix claims, hedge, and cite several passages.
 3. **One error per unsupported claim**, one passage per claim, English, Indian lending documents.
+
+## HB-Synth v2: held out for the R6 bug fixes (pre-registered)
+
+HB-Synth v1's test split was scored once (`a011853`) and its errors examined, so it is now tuning data. `synth2.py`
+generates a fresh held-out set of 610 claims (280 supported, 330 unsupported) over 60 documents of twelve new types:
+term sheet (table in ₹ lakh), statement (Markdown table), purchase order, stock statement, auditor's report,
+disbursement advice, leave-and-licence agreement, financial summary (table in ₹ lakh, two years), GST show-cause
+notice, shareholding, guarantee invocation, and borrower correspondence. Names, layouts and every wording are new.
+
+**Pre-registration** (committed before any of the fixes below):
+- **Fixes to make, using HB v0, HB-Synth v1 dev and HB-Synth v1 test only:** (1) the relevance gate on new wording
+  and with the hashing embedder; (2) "Label: value" layouts losing their label; (3) tables in ₹ lakh/crore;
+  (4) percent-of derivations that do not check what the claim names (scale slips explained away); (5) date intervals
+  that ignore the claim's unit.
+- **Primary result:** red tier (`value`) on HB-Synth v2, MiniLM, Wilson 95% intervals; hashing embedder as a
+  secondary run. Compared with frozen v2 (`v2-value`) and frozen v3 (`v3-value`, `frozen_v3/`, commit `28d868a`),
+  all scored once at the same final commit.
+- **Acceptance (unchanged from R6):** red-tier catch ≥ 68% and false flags ≤ 10%.
+- **Calibration:** refitted on non-held-out reports only (HB v0, HB-Synth v1 dev and test) and frozen before the run;
+  evaluated on HB-Synth v2 with the same metrics and the same display rule.
+- **Not tailored:** the set includes realistic claims the verifier is known not to handle and that are not on the
+  fix list (a three-figure total, a date plus a number of days, a label written after the figure, "₹10 each").
+  They will count as false flags.
+- Label audit: one document per type was read; one awkward item name was reworded. No verifier was run on it.
+- Same developer, written with the bug classes in mind: not an independent test.

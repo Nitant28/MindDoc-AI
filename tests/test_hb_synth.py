@@ -47,3 +47,14 @@ def test_cohen_kappa():
     k = agreement.cohen_kappa([("supported", "supported"), ("supported", "unsupported"),
                                ("unsupported", "unsupported"), ("unsupported", "supported")])
     assert abs(k) < 1e-9
+
+
+def test_hb_synth_v2_is_fresh_and_deterministic():
+    from benchmarks.hallucination import synth2
+    a, b = synth2.cases(), synth2.cases()
+    assert _digest(a) == _digest(b) and len(a) >= 600
+    assert synth2.cases("dev") == []
+    v1_text = " ".join(c["passage"] for c in synth.cases())
+    for name in synth2.POOL["firms"] + synth2.POOL["last"] + synth2.POOL["cities"]:
+        assert name not in v1_text, name
+    assert not {c["family"] for c in a} & {c["family"] for c in synth.cases()}
