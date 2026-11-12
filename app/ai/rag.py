@@ -92,16 +92,7 @@ def _fuse(lists: list[list[Hit]]) -> list[Hit]:
 
 def _coverage_sample(index, document_ids: Optional[list[int]], k: int) -> list[Hit]:
     """For summary-style questions: evenly spaced chunks across each document (coverage > similarity)."""
-    pools = []
-    doc_ids = document_ids or list(index.by_doc)[:3]
-    for d in doc_ids:
-        idxs = index.by_doc.get(d, [])
-        if not idxs:
-            continue
-        per = max(2, k // max(1, len(doc_ids)))
-        step = max(1, len(idxs) // per)
-        pools += [Hit(chunk=index.records[i], score=0.7) for i in idxs[::step][:per]]
-    return pools[: max(k, 4)]
+    return index.coverage_sample(document_ids, k)
 
 
 _PAGE_MARK = re.compile(r"-{3}\s*Page \d+(?: \(OCR\))?\s*-{3}\s*")
@@ -264,11 +255,11 @@ def run(db: Session, *, tenant_id: int, user_id: int, query: str, document_ids: 
         yield emit("guard", "query contains instruction-override patterns; documents are treated as data only")
 
     index = get_index(db, tenant_id)
-    yield emit("index", f"workspace index: {len(index.records)} chunks · embeddings={index.model_name}")
+    yield emit("index", f"workspace index ({index.backend}): {index.size} chunks · embeddings={index.model_name}")
 
     # ---------------------------------------------------------------- plan
     retrieval_query, sub_queries, hyde = query, [], ""
-    if deep and llm.has_llm() and index.records:
+    if deep and llm.has_llm() and index.size:
         try:
             plan = _plan(query, history)
             retrieval_query, sub_queries, hyde = plan["standalone"], plan["sub_queries"], plan["hyde"]
@@ -282,7 +273,7 @@ def run(db: Session, *, tenant_id: int, user_id: int, query: str, document_ids: 
 
     # ---------------------------------------------------------------- retrieve
     hits: list[Hit] = []
-    if index.records:
+    if index.size:
         k = settings.retrieval_top_k + (4 if deep else 0)
         if _SUMMARY_INTENT.search(query):
             hits = _coverage_sample(index, document_ids, k)
@@ -295,12 +286,14 @@ def run(db: Session, *, tenant_id: int, user_id: int, query: str, document_ids: 
                 lists.append(index.search(hyde, k=settings.retrieval_candidates, document_ids=document_ids,
                                           use_rerank=False, use_mmr=False, strategy="dense"))
             cands = _fuse(lists)
-            yield emit("retrieve", f"hybrid BM25+dense over {len(queries) + bool(hyde)} queries → RRF → {len(cands)} candidates")
+            lexical = "full-text" if index.backend == "postgres" else "BM25"
+            yield emit("retrieve", f"hybrid {lexical}+dense ({index.backend}) over {len(queries) + bool(hyde)} queries "
+                                   f"→ RRF → {len(cands)} candidates")
 
             linked, names = knowledge.entity_linked_chunks(db, tenant_id, retrieval_query, document_ids)
             if linked:
                 present = {h.chunk.id for h in cands}
-                rec = {r.id: r for r in index.records}
+                rec = index.chunks([c for c in linked if c not in present])
                 added = [Hit(chunk=rec[c], score=0.45) for c in linked if c in rec and c not in present]
                 cands += added
                 yield emit("graph", f"entities matched: {', '.join(names)} → +{len(added)} linked chunks")
@@ -312,7 +305,7 @@ def run(db: Session, *, tenant_id: int, user_id: int, query: str, document_ids: 
                     h.score = 0.7 * float(s) + 0.3 * h.score
                 cands.sort(key=lambda h: h.score, reverse=True)
                 yield emit("rerank", f"cross-encoder reranked {len(rr)} candidates")
-            hits = index._mmr(cands, k) if index.vectors is not None and len(cands) > k else cands[:k]
+            hits = index.mmr(cands, k) if index.has_vectors and len(cands) > k else cands[:k]
             yield emit("select", f"MMR diversity selection → top {len(hits)} chunks "
                                  f"(best score {hits[0].score:.2f})" if hits else "no relevant chunks found")
 

@@ -36,24 +36,19 @@ def overview(db: Session = Depends(get_db), user=Depends(get_current_user)):
         doc_types[d.doc_type or "unclassified"] = doc_types.get(d.doc_type or "unclassified", 0) + 1
 
     topics = []
-    if index.vectors is not None and len(docs) >= 3:
-        ids, vecs, texts = [], [], []
+    if index.has_vectors and len(docs) >= 3:
         content = {d.id: d.content or "" for d in docs}
-        for did, rows in index.by_doc.items():
-            v = index.vectors[rows].mean(axis=0)
-            n = np.linalg.norm(v)
-            if n > 0:
-                ids.append(did)
-                vecs.append(v / n)
-                texts.append(content.get(did, ""))
+        doc_vecs = index.document_vectors()
+        ids = list(doc_vecs)
         if len(ids) >= 3:
-            topics = insights.discover_topics(ids, np.vstack(vecs), texts)
+            topics = insights.discover_topics(ids, np.vstack([doc_vecs[i] for i in ids]),
+                                              [content.get(i, "") for i in ids])
 
     q = db.query(QueryLog).filter(QueryLog.tenant_id == tid)
     agg = q.with_entities(func.count(QueryLog.id), func.avg(QueryLog.latency_ms), func.avg(QueryLog.confidence)).one()
     recent = q.order_by(QueryLog.id.desc()).limit(10).all()
     return {
-        "documents": len(docs), "chunks": len(index.records),
+        "documents": len(docs), "chunks": index.size, "retrieval_backend": index.backend,
         "entities": db.query(func.count(Entity.id)).filter(Entity.tenant_id == tid).scalar() or 0,
         "relations": db.query(func.count(Relation.id)).filter(Relation.tenant_id == tid).scalar() or 0,
         "queries": int(agg[0] or 0), "avg_latency_ms": int(agg[1] or 0),

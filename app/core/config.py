@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     chunk_overlap: int = 150
     retrieval_top_k: int = 8
     retrieval_candidates: int = 40
+    # Where hybrid search runs. auto: in PostgreSQL (pgvector exact scan + full-text search, migration 0007) when
+    # the vector column is present and every chunk of the tenant has a vector for the active model; otherwise the
+    # in-process index (BM25 + dense). memory: always in-process. postgres: as auto (falls back when not ready).
+    retrieval_backend: str = "auto"
     context_char_budget: int = 14000
 
     # --- Vision ---------------------------------------------------------------
