@@ -136,3 +136,9 @@ notice, shareholding, guarantee invocation, and borrower correspondence. Names, 
   They will count as false flags.
 - Label audit: one document per type was read; one awkward item name was reworded. No verifier was run on it.
 - Same developer, written with the bug classes in mind: not an independent test.
+
+### Result (scored once, 2026-11-13, commit `90dbf32`)
+
+v3.1 red tier: caught 74% (95% CI 69–78%), wrongly flagged 21% (16–26%); v3 78% / 41%; v2 77% / 54%. Hashing:
+v3.1 77% / 23%. The false-flag target (≤ 10%) was **not met**. Details: `../reports/HALLUCINATION_BENCHMARK.md`.
+HB-Synth v2 is no longer held out.

@@ -1,3 +1,86 @@
+# Verifier v3.1 (the five R6 fixes) on HB-Synth v2 (2026-11-13)
+
+**Question:** do the fixes for the five bugs that HB-Synth v1's test exposed hold up on text written after those bugs
+were known but before the fixes were written?
+
+**Data:** HB-Synth v2 (`benchmarks/hallucination/synth2.py`), 610 claims (280 supported, 330 unsupported) over 60
+documents of twelve document types that appear in no earlier set. It was pre-registered in `e472438` before any fix.
+The fixes were tuned on HB v0 and both HB-Synth v1 splits only. **The set was scored once**, at `90dbf32` (clean
+tree), for every configuration. Raw rows: `hbsynth2-test-{minilm,hashing}-2026-11-13.json`.
+
+## Headline (MiniLM embeddings)
+
+| | Errors caught (of 330) | Correct sentences wrongly flagged (of 280) | F1 |
+|---|---|---|---|
+| v1 (similarity only) | 45% (95% CI 40–50%) | 36% (30–41%) | 0.51 |
+| v2 red | 77% (72–81%) | 54% (48–59%) | 0.69 |
+| v3 red (as scored on HB-Synth v1) | 78% (73–82%) | 41% (35–47%) | 0.73 |
+| **v3.1 red (decides "not supported")** | **74% (69–78%)** | **21% (16–26%)** | **0.77** |
+| v3.1 red + amber (everything the UI flags) | 84% (80–88%) | 26% (21–32%) | 0.82 |
+
+**Acceptance (pre-registered, unchanged from R6):** catch ≥ 68% **met** (74%). False flags ≤ 10% **not met**
+(21%).
+
+With the hashing embedder (slim/Render image):
+- **v2 red:** catches 81%, wrongly flags 57%.
+- **v3 red:** catches 82%, wrongly flags 48%.
+- **v3.1 red:** catches 77%, wrongly flags **23%**.
+
+**What it shows.**
+- The fixes roughly halve the false flags again on unseen text (41% → 21%). The slim embedder now behaves like
+  MiniLM (23%) instead of much worse.
+- This set is much harder than v1: v3 went from 11% false flags on v1 to 41% here.
+- The 10% target is still far off.
+
+## Where the 58 false flags come from
+
+| Cause | Count | Status |
+|---|---|---|
+| Claim kinds declared unhandled when the set was written: three-figure total, date + days, label written after the figure, "₹10 each" | 20 | known gaps |
+| Term sheet with units only in the column header ("Rate (% p.a.)", "Tenor (months)"): 10.75 is not read as a percentage, 60 not as months; "the two facilities" counts "two" as a figure | 20 | new, found here |
+| Relevance check on plain paraphrase ("The month ended with a balance of …", "The money went straight to the machinery supplier") | 18 | reduced, not solved |
+
+## The five fixed classes on held-out text (red tier, flagged of n)
+
+| Class | n | v3 | v3.1 |
+|---|---|---|---|
+| correct: figure or difference from a table in ₹ lakh | 25 | 25 | **0** |
+| correct: ratio, percentage or product from "Label: value" figures | 30 | 25 | **5** |
+| correct: reformatted figures and dates | 45 | 2 | 0 |
+| correct: plain paraphrase | 65 | 22 | 18 |
+| wrong lakh/crore scale against a ₹ lakh table | 10 | 10 | 10 |
+| wrong computed percentage, product, ratio, total | 35 | 33 | 33 |
+
+## Errors no longer caught (14 vs v3; none gained)
+
+- **5 swapped parties and 5 figures attributed to the wrong year.** v3 flagged these only because it could not read
+  the ₹ lakh table, so every figure looked wrong. Now the figures match, and v3.1 does not check which column a
+  figure came from.
+- **4 "raised from A to B" where A > B.** "Raised" is not among the change verbs. v3 flagged these through the
+  relevance check, which now counts the verified figures.
+
+## Calibration
+
+The model was refitted on the non-held-out reports (1,238 claims) and frozen in `90dbf32`. On HB-Synth v2:
+
+| Metric | Value | 95% CI |
+|---|---|---|
+| ECE | 0.110 | 0.090–0.140 |
+| Adaptive ECE | 0.097 | 0.084–0.139 |
+| Brier | 0.168 | — |
+
+It is too sure that flagged sentences are wrong: in its lowest bin it predicts 1.6% supported, and 16.5% are. ECE is
+above 0.1, so **no probability is displayed**. Report: `calibration-hbsynth2-test-minilm-2026-11-13.json`.
+
+## Caveats
+
+- The same developer wrote HB-Synth v2 and the fixes, knowing the five bug classes. The set includes claim kinds
+  outside the fix list on purpose; they are a third of the false flags. Still not an independent test.
+- HB-Synth v2 has now been seen. Any fix for the term-sheet header units or the relevance check needs another fresh
+  set, or the independently annotated split (owner action).
+
+---
+
 # Claim verifier v3 on HB-Synth v1 (R6, 2026-11-12)
 
 **Question:** on a fresh, larger set built before any change, does verifier v3 (recomputation, money direction,

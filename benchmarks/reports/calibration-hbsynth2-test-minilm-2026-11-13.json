@@ -1,0 +1,109 @@
+{
+ "model": {
+  "features": [
+   "red",
+   "amber",
+   "coverage",
+   "similarity",
+   "recomputed"
+  ],
+  "intercept": 0.60332418583795,
+  "coef": {
+   "red": -5.1401247476525125,
+   "amber": -2.9882054492681625,
+   "coverage": 1.5830691312806482,
+   "similarity": -0.9114745481715033,
+   "recomputed": 2.6979580004184043
+  },
+  "l2": 1.0,
+  "target": "P(sentence supported)",
+  "fit": {
+   "reports": [
+    "hbsynth-all-minilm-2026-11-13.json",
+    "hallucination-all-minilm-2026-11-13.json"
+   ],
+   "n": 1238,
+   "supported_rate": 0.4079159935379645,
+   "ece": 0.0235,
+   "ece_adaptive": 0.0346,
+   "brier": 0.0655,
+   "log_loss": 0.2317
+  },
+  "fitted": "2026-11-13",
+  "commit": "e4724389f1d087ec7dbe3ca4add4160f09a159a7"
+ },
+ "eval_report": "hbsynth2-test-minilm-2026-11-13.json",
+ "n": 610,
+ "supported_rate": 0.45901639344262296,
+ "metrics": {
+  "ece": 0.11,
+  "ece_adaptive": 0.0973,
+  "brier": 0.168,
+  "log_loss": 0.6077
+ },
+ "ci95": {
+  "ece": [
+   0.0898,
+   0.1402
+  ],
+  "ece_adaptive": [
+   0.0844,
+   0.1385
+  ],
+  "brier": [
+   0.1458,
+   0.1888
+  ],
+  "log_loss": [
+   0.5259,
+   0.6863
+  ]
+ },
+ "reliability": [
+  {
+   "bin": "0.0\u20130.1",
+   "n": 291,
+   "mean_predicted": 0.016,
+   "observed_supported": 0.165
+  },
+  {
+   "bin": "0.1\u20130.2",
+   "n": 33,
+   "mean_predicted": 0.17,
+   "observed_supported": 0.455
+  },
+  {
+   "bin": "0.2\u20130.3",
+   "n": 27,
+   "mean_predicted": 0.224,
+   "observed_supported": 0.37
+  },
+  {
+   "bin": "0.6\u20130.7",
+   "n": 7,
+   "mean_predicted": 0.677,
+   "observed_supported": 0.0
+  },
+  {
+   "bin": "0.7\u20130.8",
+   "n": 85,
+   "mean_predicted": 0.773,
+   "observed_supported": 0.765
+  },
+  {
+   "bin": "0.8\u20130.9",
+   "n": 110,
+   "mean_predicted": 0.828,
+   "observed_supported": 0.791
+  },
+  {
+   "bin": "0.9\u20131.0",
+   "n": 57,
+   "mean_predicted": 0.982,
+   "observed_supported": 0.965
+  }
+ ],
+ "display_allowed": false,
+ "date": "2026-11-13",
+ "commit": "90dbf322437a5e1bc558fe76c2413fb9f305a88b"
+}

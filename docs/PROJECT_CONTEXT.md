@@ -384,6 +384,19 @@ In CI, `REQUIRE_ML_MODELS=1` makes the semantic tests fail rather than skip when
 
 ## 9. Measured results (the only numbers you may quote)
 
+**Claim verifier v3.1 on HB-Synth v2** (R6 fixes; fresh set of 610 claims pre-registered before the fixes; scored
+once):
+
+| Held-out HB-Synth v2, MiniLM | Errors caught (of 330) | Correct sentences wrongly flagged (of 280) |
+|---|---|---|
+| v2 red | 77% (72–81%) | 54% (48–59%) |
+| v3 red | 78% (73–82%) | 41% (35–47%) |
+| **v3.1 red (shipped)** | **74% (69–78%)** | **21% (16–26%)** |
+
+- Hashing embedder (slim/Render): v3.1 catches 77% and wrongly flags 23%.
+- False-flag target (≤ 10%) not met.
+- Calibration: ECE 0.110, so it is not displayed.
+
 **Claim verifier v3 on HB-Synth v1** (R6; generated set pre-registered before the change; test scored once):
 
 | Held-out test (600 claims), MiniLM | Errors caught (of 356) | Correct sentences wrongly flagged (of 244) |
@@ -428,12 +441,14 @@ In CI, `REQUIRE_ML_MODELS=1` makes the semantic tests fail rather than skip when
 
 ## 10. Known limitations (NOT DONE — be explicit about these)
 
-1. **Verifier (v3):**
-   - Meaning errors that reuse the source's words (swapped parties, flipped negation) are amber-only.
-   - On held-out wording it still wrongly flags 11% of correct sentences (31% with the hashing embedder).
-   - Known test-revealed bugs: "Label: value" layouts, tables in ₹ crore, percent-of without a label check,
-     interval units (see the benchmark report).
-2. The **evidence score is uncalibrated**: it is not a probability. A claim-level calibration was measured (ECE 0.096, overconfident) and is not shown.
+1. **Verifier (v3.1):**
+   - Meaning errors that reuse the source's words (swapped parties, flipped negation) are amber-only. The verifier
+     doesn't check which table column a figure came from.
+   - On unseen layouts and wording it still wrongly flags about 1 in 5 correct sentences (HB-Synth v2: 21%, 23%
+     with the hashing embedder).
+   - Known gaps: units given only in a column header, three-figure totals, a date plus a number of days, labels
+     written after the figure.
+2. The **evidence score is uncalibrated**: it is not a probability. A claim-level calibration was measured twice (ECE 0.096 on HB-Synth v1, 0.110 on v2) and is not shown.
 3. **Ingestion is synchronous** inside the upload request. There are no workers, retries or progress events.
 4. **SQLite and in-memory state:** no Postgres or Alembic, the index lives in process memory, and rate limits
    aren't shared across replicas.
