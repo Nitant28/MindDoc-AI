@@ -32,3 +32,13 @@ Source: `docs/review/C_ADR_REVIEW.md`.
 - **Vectors:** exact scan for small cases; per-tenant partial HNSW or iterative scans for large ones (one shared HNSW
   index degrades per-tenant recall).
 - **Hosting** is split between demo and pilot (ADR-0013). Sources: `docs/review/research/POSTGRES_INFRA_RESEARCH.md`.
+
+## Implementation note 2026-11-13 (R6 part 2)
+
+- **Built:** migration 0007, `vector(384)` with exact scans, no shared HNSW, and a generated `tsvector` with a GIN
+  index. Lexical ranking is BM25 computed on PostgreSQL lexemes over full-text candidates.
+- **Ablation R1 (synthetic, `benchmarks/reports/RETRIEVALBENCH.md`):** `ts_rank_cd` alone ranked well below BM25
+  (Hit@5 0.690 vs 0.821). BM25 on lexemes matched in-process BM25 (0.841) and gave hybrid parity with the
+  in-process index (0.782 vs 0.775).
+- **Not done:** `halfvec` (needs pgvector 0.7+; the local test server runs 0.6.2), per-tenant HNSW, `pg_trgm`, and
+  a human-written retrieval set.

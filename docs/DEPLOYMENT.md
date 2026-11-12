@@ -27,6 +27,12 @@ Known limits:
 - Vercel's limits on proxied request size and duration apply to uploads and long requests and have not been measured.
   Large uploads may need to go to the Render URL directly.
 
+**Search on PostgreSQL (migration 0007).** The migration creates the `vector` extension if the server offers it
+(Neon and the `pgvector/pgvector` image do). Without it, the full-text column is still created and search stays in
+process. Rows that row-level security hid from the migration get their vectors at the first search for each
+tenant. There is no HNSW index: exact scans suit case-sized corpora; a per-tenant partial index is the step for large
+tenants (ADR-0002).
+
 SQLite remains supported as a **single-user development fallback**: no row-level security, no concurrent job claiming
 (`SKIP LOCKED`), and tenant isolation relies on application filters only. Do not run multi-user deployments on SQLite.
 
@@ -40,6 +46,7 @@ SQLite remains supported as a **single-user development fallback**: no row-level
 | `EMBEDDED_WORKER` | `true` | run worker threads inside the web process |
 | `WORKER_THREADS` | 1 | worker threads per process |
 | `ASYNC_INGESTION` | `true` | uploads are queued (HTTP 202); `?wait=true` processes inside the request |
+| `RETRIEVAL_BACKEND` | `auto` | `auto`: hybrid search inside PostgreSQL (needs the `vector` extension, migration 0007, and a 384-d embedding model) when every chunk of the tenant has a vector, else in process; `memory`: always in process (rollback switch) |
 | `JWT_SECRET`, `CORS_ORIGINS`, provider keys | — | see `docs/MANUAL.md` §4 |
 
 ## 3. Database migrations

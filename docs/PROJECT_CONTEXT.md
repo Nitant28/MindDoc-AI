@@ -134,6 +134,15 @@ boundaries, and never cross a page, so citations are page-exact.
 
 **BM25** uses k1 = 1.5 and b = 0.75, with a light stemmer and a stopword list.
 
+**Two search backends** (`app/ml/retrieval.py`, R6). On PostgreSQL, hybrid search runs in the database (migration
+0007):
+- an exact cosine scan over a pgvector `vector(384)` column, which a trigger keeps equal to the stored embedding;
+- BM25 over PostgreSQL's lexemes, with full-text search supplying candidates.
+
+It is chosen automatically when every chunk of the tenant has a vector for the active model. Otherwise, and on SQLite,
+the in-process index (BM25 + NumPy) is used. Fusion, reranking and MMR are shared. RetrievalBench-Synth v0 measured
+parity: identical dense rankings, and hybrid Hit@5 of 0.782 vs 0.775.
+
 **Hybrid fusion.** BM25 and dense ranks are combined with **Reciprocal Rank Fusion**: Σ 1/(60 + rank).
 
 **Reranking.** A cross-encoder (`ms-marco-MiniLM-L-6-v2`) reorders the top candidates, with final score
@@ -450,8 +459,9 @@ once):
      written after the figure.
 2. The **evidence score is uncalibrated**: it is not a probability. A claim-level calibration was measured twice (ECE 0.096 on HB-Synth v1, 0.110 on v2) and is not shown.
 3. **Ingestion is synchronous** inside the upload request. There are no workers, retries or progress events.
-4. **SQLite and in-memory state:** no Postgres or Alembic, the index lives in process memory, and rate limits
-   aren't shared across replicas.
+4. **In-memory state:** on PostgreSQL, search now runs in the database; on SQLite the index still lives in process
+   memory. Rate limits aren't shared across replicas. Retrieval has only a synthetic benchmark (no human-written
+   questions), and no HNSW index or scale test exists.
 5. **Scanned PDFs have no stored word boxes**, so citation highlights only work on PDFs with a text layer.
 6. **PyMuPDF is AGPL-3.0.** It must be replaced before any closed-source distribution. EasyOCR is stagnant.
 7. **PII is detected, not redacted.** Prompt-injection defence is pattern-based.
