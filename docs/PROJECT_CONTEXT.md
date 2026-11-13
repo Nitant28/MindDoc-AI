@@ -134,6 +134,15 @@ boundaries, and never cross a page, so citations are page-exact.
 
 **BM25** uses k1 = 1.5 and b = 0.75, with a light stemmer and a stopword list.
 
+**Two search backends** (`app/ml/retrieval.py`, R6). On PostgreSQL, hybrid search runs in the database (migration
+0007):
+- an exact cosine scan over a pgvector `vector(384)` column, which a trigger keeps equal to the stored embedding;
+- BM25 over PostgreSQL's lexemes, with full-text search supplying candidates.
+
+It is chosen automatically when every chunk of the tenant has a vector for the active model. Otherwise, and on SQLite,
+the in-process index (BM25 + NumPy) is used. Fusion, reranking and MMR are shared. RetrievalBench-Synth v0 measured
+parity: identical dense rankings, and hybrid Hit@5 of 0.782 vs 0.775.
+
 **Hybrid fusion.** BM25 and dense ranks are combined with **Reciprocal Rank Fusion**: Σ 1/(60 + rank).
 
 **Reranking.** A cross-encoder (`ms-marco-MiniLM-L-6-v2`) reorders the top candidates, with final score
@@ -183,7 +192,8 @@ boundaries, and never cross a page, so citations are page-exact.
 | Abstain | when the answer says the sources don't cover the question, or the evidence score is below 0.25 |
 | Log | the message and its metadata are stored; `query_logs` records provider, model, latency, score, a SHA-256 **prompt hash** and the chunk IDs used |
 
-**Claim verifier v2** (`verifier.py`, new in 2.1.0). Each answer sentence is checked against the passages it cites.
+**Claim verifier v3** (`verifier.py`; v2 shipped in 2.1.0, v3 in R6). Each answer sentence is checked against the
+passages it cites.
 
 *Value checks (red, "contradicts source").* These decide whether a sentence is supported.
 - Numbers: ₹, Rs, INR and $ amounts; Indian digit grouping; lakh, crore and million scales; number words;
@@ -196,7 +206,21 @@ boundaries, and never cross a page, so citations are page-exact.
 - Every party name must appear in the source.
 - Relevance: embedding similarity to the best source sentence, or word coverage.
 
+*Verifier v3 additions (R6, value checks, red).* `app/ai/recompute.py`:
+- **Recomputation.** A figure the passage doesn't print is accepted when it can be computed from the passage's own
+  figures with exact decimal arithmetic: durations (36 months = 3 years), monthly ↔ annual when the claim says so,
+  percent-of (18% of the taxable value), an item count × a per-item rate, shares and changes between two figures the
+  claim names, whole-number ratios ("six months' rent"), column totals and date intervals. The derivation is shown
+  under the sentence ("Recomputed: …").
+- **Money direction.** An amount in a Debit/Withdrawals (Credit/Deposits) column, or one the passage calls debited
+  (credited), must not be described as coming in (going out). Column roles come from the statement header lexicon.
+- **Change arithmetic.** "Rose from A to B" with B below A, or "increased to B" when the passage goes from A down
+  to B, is a contradiction.
+
 *Wording heuristics (amber, "check wording").* These are shown to the user but don't count against the answer.
+v3 fixes: converse verbs (rents from / leases to), passive voice read next to the name only, "declined" read as
+refused or decreased from what follows, negated direction words ("not included" = excluded), possessive name spans,
+and a rarity-weighted choice of the matching source sentence.
 - Negation with scope: the parity of negation cues is compared, counting only cues whose next six words touch the
   other text.
 - Direction words: credit/debit, rose/fell, above/below, before/after.
@@ -213,11 +237,25 @@ held-out test set.
 - Entity types: PERSON, ORG, LOCATION, DATE, MONEY, EMAIL, URL, PRODUCT, LAW, CONCEPT, OTHER.
 - Extraction uses regex for EMAIL, URL, MONEY, DATE and LAW, heuristic named-entity recognition for ORG, PERSON and
   LOCATION, and, when an LLM is configured, **GraphRAG-style JSON extraction** of entities and typed relations.
-- Entities are merged by normalised name, mentions are stored per chunk, and relations are weighted.
+- Entities are merged by normalised name and mentions are stored per chunk.
+- `relations` holds only typed relations (from the LLM). Names in the same passage are **co-mentions**
+  (`co_mentions`, ADR-0005 amendment): shown as dashed "named together" edges, never as a relationship.
 - **Timeline:** every dated fact is listed with its context, including upcoming deadlines.
 
 **Structured extraction** (`extraction.py`). The user defines fields such as `{"effective_date": "start date"}`.
 Passages are retrieved per field, and an LLM fills a JSON object, with `null` where the value isn't found.
+
+### 4.3a Accounts, findings and frozen reports (R5) — `app/finance/accounts.py`, `app/findings/service.py`
+
+- **Bank accounts.** One per IFSC + keyed hash of the number; only the last four digits are stored.
+- **Holders.** Read from a labelled statement header, or set by an analyst. Account Aggregator profile data is not
+  read. The holder becomes a party with the account as identifier, so a statement's owner links to the same company
+  paid by other statements. The flow graph draws a dashed "holds" edge with its evidence.
+- **Findings.** Analyst statements pinned to claim versions, with every change a new version. Lineage reaches the
+  highlighted statement row in two clicks. "Refresh" moves a finding to the current claims and back to draft.
+- **Reports.** Approved findings frozen as canonical JSON with a SHA-256 hash, re-checked on read. They flag new
+  evidence since issue, and the application cannot edit them. MindDoc never writes or approves findings and never
+  labels fraud.
 
 ### 4.4 Responsible AI and security — `app/ai/guardrails.py`, `app/core/security.py`, `app/api/deps.py`
 
@@ -369,7 +407,33 @@ In CI, `REQUIRE_ML_MODELS=1` makes the semantic tests fail rather than skip when
 
 ## 9. Measured results (the only numbers you may quote)
 
-**Claim verifier benchmark** (`benchmarks/hallucination`; report: `benchmarks/reports/HALLUCINATION_BENCHMARK.md`):
+**Claim verifier v3.1 on HB-Synth v2** (R6 fixes; fresh set of 610 claims pre-registered before the fixes; scored
+once):
+
+| Held-out HB-Synth v2, MiniLM | Errors caught (of 330) | Correct sentences wrongly flagged (of 280) |
+|---|---|---|
+| v2 red | 77% (72–81%) | 54% (48–59%) |
+| v3 red | 78% (73–82%) | 41% (35–47%) |
+| **v3.1 red (shipped)** | **74% (69–78%)** | **21% (16–26%)** |
+
+- Hashing embedder (slim/Render): v3.1 catches 77% and wrongly flags 23%.
+- False-flag target (≤ 10%) not met.
+- Calibration: ECE 0.110, so it is not displayed.
+
+**Claim verifier v3 on HB-Synth v1** (R6; generated set pre-registered before the change; test scored once):
+
+| Held-out test (600 claims), MiniLM | Errors caught (of 356) | Correct sentences wrongly flagged (of 244) |
+|---|---|---|
+| v2 red | 71% (95% CI 66–76%) | 30% (25–36%) |
+| **v3 red (shipped)** | **72% (67–76%)** | **11% (8–16%)** |
+| v3 red + amber | 84% (80–88%) | 18% (14–23%) |
+
+- Acceptance: catch ≥ 68% met; false flags ≤ 10% **not met**.
+- Hashing embedder (slim/Render): v3 red catches 75% and wrongly flags **31%** (v2: 42%).
+- Calibration of P(supported): test ECE 0.096 (CI 0.077–0.115), overconfident; **not displayed**.
+- Caveat: generated by the same developer who wrote the verifier; not an independent test.
+
+**Claim verifier benchmark v0** (`benchmarks/hallucination`; report: `benchmarks/reports/HALLUCINATION_BENCHMARK.md`):
 - 146 hand-labelled claims over 16 fictional Indian lending documents.
 - A **dev** split (74) was used for tuning; a **test** split (72) was scored once, after the rules were frozen.
 
@@ -400,16 +464,18 @@ In CI, `REQUIRE_ML_MODELS=1` makes the semantic tests fail rather than skip when
 
 ## 10. Known limitations (NOT DONE — be explicit about these)
 
-1. **Verifier:**
-   - It misses meaning errors that reuse the source's own words.
-   - Amber hints are wrong about half the time.
-   - Computed percentages are wrongly flagged.
-   - Debit/credit isn't read from table columns.
-   - There's no recomputation engine.
-2. The **evidence score is uncalibrated**: it is not a probability.
+1. **Verifier (v3.1):**
+   - Meaning errors that reuse the source's words (swapped parties, flipped negation) are amber-only. The verifier
+     doesn't check which table column a figure came from.
+   - On unseen layouts and wording it still wrongly flags about 1 in 5 correct sentences (HB-Synth v2: 21%, 23%
+     with the hashing embedder).
+   - Known gaps: units given only in a column header, three-figure totals, a date plus a number of days, labels
+     written after the figure.
+2. The **evidence score is uncalibrated**: it is not a probability. A claim-level calibration was measured twice (ECE 0.096 on HB-Synth v1, 0.110 on v2) and is not shown.
 3. **Ingestion is synchronous** inside the upload request. There are no workers, retries or progress events.
-4. **SQLite and in-memory state:** no Postgres or Alembic, the index lives in process memory, and rate limits
-   aren't shared across replicas.
+4. **In-memory state:** on PostgreSQL, search now runs in the database; on SQLite the index still lives in process
+   memory. Rate limits aren't shared across replicas. Retrieval has only a synthetic benchmark (no human-written
+   questions), and no HNSW index or scale test exists.
 5. **Scanned PDFs have no stored word boxes**, so citation highlights only work on PDFs with a text layer.
 6. **PyMuPDF is AGPL-3.0.** It must be replaced before any closed-source distribution. EasyOCR is stagnant.
 7. **PII is detected, not redacted.** Prompt-injection defence is pattern-based.

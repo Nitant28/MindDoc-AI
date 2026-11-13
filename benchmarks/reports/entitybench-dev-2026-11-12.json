@@ -1,0 +1,28 @@
+{
+  "split": "dev",
+  "cases": 30,
+  "records": 2357,
+  "true_pairs": 3003,
+  "auto": {
+    "precision": 0.9801,
+    "precision_ci95": [
+      0.9724,
+      0.9856
+    ],
+    "recall": 0.5728,
+    "recall_ci95": [
+      0.555,
+      0.5903
+    ],
+    "wrong_pairs": 35,
+    "high_risk_wrong_pairs": 0
+  },
+  "review": {
+    "pairs": 1421,
+    "per_case": 47.4,
+    "cluster_pairs_per_case": 26.7,
+    "true_match_share": 0.6678,
+    "recall_if_all_accepted": 0.8581
+  },
+  "seconds_per_case": 0.49
+}

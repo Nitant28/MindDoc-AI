@@ -19,7 +19,7 @@ from typing import Iterable, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.database.models import DocumentChunk, Entity, EntityMention, Relation
+from app.database.models import CoMention, DocumentChunk, Entity, EntityMention, Relation
 
 logger = logging.getLogger(__name__)
 
@@ -168,25 +168,29 @@ def build_graph_for_document(db: Session, tenant_id: int, document_id: int, chun
         for cid, cnt in mentions[norm]:
             db.add(EntityMention(entity_id=ent.id, document_id=document_id, chunk_id=cid, count=cnt))
 
-    # Relations: LLM-typed relations + co-occurrence within the same chunk.
+    # Relations are only what the LLM extracted as a typed relation. Being named in the same passage is a
+    # co-mention: a weak signal kept separately and never shown as a relationship (ADR-0005 amendment).
     rel_weights: Counter = Counter()
     for s, t, r in llm_rels:
         a, b = entity_ids.get(normalize(s)), entity_ids.get(normalize(t))
         if a and b and a != b:
-            rel_weights[(a, b, r)] += 2
+            rel_weights[(a, b, r)] += 1
+    for (a, b, r), w in rel_weights.most_common(150):
+        db.add(Relation(tenant_id=tenant_id, document_id=document_id, source_id=a, target_id=b, relation=r,
+                        weight=float(w)))
     per_chunk: dict[int, set[int]] = defaultdict(set)
     for norm, ms in mentions.items():
         if norm in entity_ids and by_norm[norm][1] not in ("DATE", "URL"):
             for cid, _ in ms:
                 per_chunk[cid].add(entity_ids[norm])
+    co: Counter = Counter()
     for ids in per_chunk.values():
         for a, b in combinations(sorted(ids)[:25], 2):
-            rel_weights[(a, b, "co_occurs")] += 1
-    for (a, b, r), w in rel_weights.most_common(150):
-        db.add(Relation(tenant_id=tenant_id, document_id=document_id, source_id=a, target_id=b, relation=r,
-                        weight=float(w)))
+            co[(a, b)] += 1
+    for (a, b), n in co.most_common(300):
+        db.add(CoMention(tenant_id=tenant_id, document_id=document_id, a_entity_id=a, b_entity_id=b, chunks=n))
     db.commit()
-    return {"entities": len(entity_ids), "relations": min(150, len(rel_weights))}
+    return {"entities": len(entity_ids), "relations": min(150, len(rel_weights)), "co_mentions": min(300, len(co))}
 
 
 def remove_document(db: Session, tenant_id: int, document_id: int):
@@ -197,6 +201,7 @@ def remove_document(db: Session, tenant_id: int, document_id: int):
         if ent:
             ent.mention_count = max(0, (ent.mention_count or 0) - int(total or 0))
     db.query(Relation).filter(Relation.document_id == document_id).delete(synchronize_session=False)
+    db.query(CoMention).filter(CoMention.document_id == document_id).delete(synchronize_session=False)
     db.query(EntityMention).filter(EntityMention.document_id == document_id).delete(synchronize_session=False)
     db.flush()
     orphan_ids = [e.id for e in db.query(Entity).filter(Entity.tenant_id == tenant_id).all()
@@ -235,9 +240,24 @@ def graph(db: Session, tenant_id: int, document_id: Optional[int] = None, limit:
             .filter(Relation.tenant_id == tenant_id, Relation.source_id.in_(ids), Relation.target_id.in_(ids))
         if document_id:
             rq = rq.filter(Relation.document_id == document_id)
+        weak: Counter = Counter()
         for s, t, r, w in rq.group_by(Relation.source_id, Relation.target_id, Relation.relation) \
                 .order_by(func.sum(Relation.weight).desc()).limit(limit * 4):
-            edges.append({"source": f"e:{s}", "target": f"e:{t}", "relation": r, "weight": float(w)})
+            if r == "co_occurs":  # written before migration 0008 moved co-occurrence out of relations
+                weak[(s, t)] += int(w)
+            else:
+                edges.append({"source": f"e:{s}", "target": f"e:{t}", "relation": r, "weight": float(w),
+                              "weak": False})
+        cq = db.query(CoMention.a_entity_id, CoMention.b_entity_id, func.sum(CoMention.chunks)) \
+            .filter(CoMention.tenant_id == tenant_id, CoMention.a_entity_id.in_(ids), CoMention.b_entity_id.in_(ids))
+        if document_id:
+            cq = cq.filter(CoMention.document_id == document_id)
+        for a, b, n in cq.group_by(CoMention.a_entity_id, CoMention.b_entity_id) \
+                .order_by(func.sum(CoMention.chunks).desc()).limit(limit * 4):
+            weak[(a, b)] += int(n)
+        for (a, b), n in weak.most_common(limit * 4):
+            edges.append({"source": f"e:{a}", "target": f"e:{b}", "relation": "mentioned_together",
+                          "weight": float(n), "weak": True})
     return {"nodes": nodes, "edges": edges}
 
 
@@ -318,8 +338,13 @@ def entity_linked_chunks(db: Session, tenant_id: int, query: str, document_ids: 
     if not matched:
         return [], []
     ids = [e.id for e in matched[:5]]
+    # 1-hop neighbours for retrieval: typed relations first, then co-mentions (a weak signal is fine for finding
+    # passages; it is never presented as a relationship)
     neighbours = [r.target_id for r in db.query(Relation).filter(Relation.source_id.in_(ids))
                   .order_by(Relation.weight.desc()).limit(5)]
+    if len(neighbours) < 5:
+        neighbours += [c.b_entity_id for c in db.query(CoMention).filter(CoMention.a_entity_id.in_(ids))
+                       .order_by(CoMention.chunks.desc()).limit(5 - len(neighbours))]
     q = db.query(EntityMention.chunk_id).filter(EntityMention.entity_id.in_(ids + neighbours),
                                                  EntityMention.chunk_id.isnot(None))
     if document_ids:

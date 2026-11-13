@@ -1,0 +1,17 @@
+# Vercel hosts only the static frontend (frontend/). The FastAPI backend runs on Render (Docker), and /api is
+# proxied there by the rewrite in vercel.json. Keep backend code, data and Python manifests out of Vercel builds so
+# they are never detected or deployed as serverless functions.
+app/
+tests/
+benchmarks/
+migrations/
+tools/
+docs/
+data/
+uploads/
+*.db
+requirements*.txt
+Dockerfile
+render.yaml
+alembic.ini
+.github/

@@ -11,6 +11,7 @@ from app.ai import rag
 from app.api.deps import enforce_rate, get_current_user
 from app.core.security import query_limiter
 from app.database.models import ChatMessage, ChatSession, SavedItem, SessionLocal, get_db
+from app.database.tenancy import set_tenant
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -93,6 +94,7 @@ def stream(req: QueryRequest, user=Depends(get_current_user)):
 
     def gen():
         db = SessionLocal()  # own session: lives as long as the stream
+        set_tenant(db, tenant_id)
         try:
             class _U:  # minimal user stand-in bound to this session
                 id = user_id

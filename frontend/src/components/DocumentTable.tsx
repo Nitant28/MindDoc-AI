@@ -229,7 +229,17 @@ export default function DocumentTable({
                       </div>
                     </td>
                     <td className="px-3 py-3">
-                      <DocTypeBadge type={d.doc_type} />
+                      {d.status && d.status !== 'completed' ? (
+                        <Badge
+                          tone={d.status === 'failed' ? 'danger' : 'accent'}
+                          dot
+                          title={d.status_detail ?? undefined}
+                        >
+                          {d.status === 'failed' ? 'Failed' : d.status === 'queued' ? 'Queued' : 'Processing'}
+                        </Badge>
+                      ) : (
+                        <DocTypeBadge type={d.doc_type} />
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       <QualityMeter value={d.quality_score} />

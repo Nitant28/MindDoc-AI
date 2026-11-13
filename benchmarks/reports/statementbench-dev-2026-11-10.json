@@ -1,0 +1,574 @@
+{
+ "current": {
+  "summary": {
+   "statements": 40,
+   "gold_rows": 2602,
+   "pred_rows": 0,
+   "matched": 0,
+   "row_precision": 0.0,
+   "row_recall": 0.0,
+   "row_recall_ci": [
+    0.0,
+    0.0014742262154384214
+   ],
+   "row_f1": 0.0,
+   "balance_acc": 0.0,
+   "narration_acc": 0.0,
+   "statement_exact": 0.0,
+   "statement_exact_ci": [
+    0.0,
+    0.08762453925039232
+   ],
+   "reconciled": 0.0,
+   "reconciled_ci": [
+    0.0,
+    0.08762453925039232
+   ],
+   "seconds_per_page": 0.4032177593749111,
+   "by_layout": {
+    "A": {
+     "statements": 10,
+     "gold_rows": 561,
+     "pred_rows": 0,
+     "matched": 0,
+     "row_precision": 0.0,
+     "row_recall": 0.0,
+     "row_recall_ci": [
+      4.336808689942018e-19,
+      0.006801198778560218
+     ],
+     "row_f1": 0.0,
+     "balance_acc": 0.0,
+     "narration_acc": 0.0,
+     "statement_exact": 0.0,
+     "statement_exact_ci": [
+      0.0,
+      0.2775401687666166
+     ],
+     "reconciled": 0.0,
+     "reconciled_ci": [
+      0.0,
+      0.2775401687666166
+     ]
+    },
+    "B": {
+     "statements": 10,
+     "gold_rows": 766,
+     "pred_rows": 0,
+     "matched": 0,
+     "row_precision": 0.0,
+     "row_recall": 0.0,
+     "row_recall_ci": [
+      0.0,
+      0.0049901174475372595
+     ],
+     "row_f1": 0.0,
+     "balance_acc": 0.0,
+     "narration_acc": 0.0,
+     "statement_exact": 0.0,
+     "statement_exact_ci": [
+      0.0,
+      0.2775401687666166
+     ],
+     "reconciled": 0.0,
+     "reconciled_ci": [
+      0.0,
+      0.2775401687666166
+     ]
+    },
+    "C": {
+     "statements": 10,
+     "gold_rows": 606,
+     "pred_rows": 0,
+     "matched": 0,
+     "row_precision": 0.0,
+     "row_recall": 0.0,
+     "row_recall_ci": [
+      0.0,
+      0.006299340681252312
+     ],
+     "row_f1": 0.0,
+     "balance_acc": 0.0,
+     "narration_acc": 0.0,
+     "statement_exact": 0.0,
+     "statement_exact_ci": [
+      0.0,
+      0.2775401687666166
+     ],
+     "reconciled": 0.0,
+     "reconciled_ci": [
+      0.0,
+      0.2775401687666166
+     ]
+    },
+    "D": {
+     "statements": 10,
+     "gold_rows": 669,
+     "pred_rows": 0,
+     "matched": 0,
+     "row_precision": 0.0,
+     "row_recall": 0.0,
+     "row_recall_ci": [
+      0.0,
+      0.005709516177358831
+     ],
+     "row_f1": 0.0,
+     "balance_acc": 0.0,
+     "narration_acc": 0.0,
+     "statement_exact": 0.0,
+     "statement_exact_ci": [
+      0.0,
+      0.2775401687666166
+     ],
+     "reconciled": 0.0,
+     "reconciled_ci": [
+      0.0,
+      0.2775401687666166
+     ]
+    }
+   }
+  },
+  "statements": [
+   {
+    "gold_rows": 20,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "A000",
+    "layout": "A"
+   },
+   {
+    "gold_rows": 50,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "A001",
+    "layout": "A"
+   },
+   {
+    "gold_rows": 55,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "A002",
+    "layout": "A"
+   },
+   {
+    "gold_rows": 96,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "A003",
+    "layout": "A"
+   },
+   {
+    "gold_rows": 90,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "A004",
+    "layout": "A"
+   },
+   {
+    "gold_rows": 66,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "A005",
+    "layout": "A"
+   },
+   {
+    "gold_rows": 33,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "A006",
+    "layout": "A"
+   },
+   {
+    "gold_rows": 91,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "A007",
+    "layout": "A"
+   },
+   {
+    "gold_rows": 32,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "A008",
+    "layout": "A"
+   },
+   {
+    "gold_rows": 28,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "A009",
+    "layout": "A"
+   },
+   {
+    "gold_rows": 30,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "B000",
+    "layout": "B"
+   },
+   {
+    "gold_rows": 51,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "B001",
+    "layout": "B"
+   },
+   {
+    "gold_rows": 107,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "B002",
+    "layout": "B"
+   },
+   {
+    "gold_rows": 87,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "B003",
+    "layout": "B"
+   },
+   {
+    "gold_rows": 107,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "B004",
+    "layout": "B"
+   },
+   {
+    "gold_rows": 105,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "B005",
+    "layout": "B"
+   },
+   {
+    "gold_rows": 72,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "B006",
+    "layout": "B"
+   },
+   {
+    "gold_rows": 44,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "B007",
+    "layout": "B"
+   },
+   {
+    "gold_rows": 65,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "B008",
+    "layout": "B"
+   },
+   {
+    "gold_rows": 98,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "B009",
+    "layout": "B"
+   },
+   {
+    "gold_rows": 98,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "C000",
+    "layout": "C"
+   },
+   {
+    "gold_rows": 31,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "C001",
+    "layout": "C"
+   },
+   {
+    "gold_rows": 68,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "C002",
+    "layout": "C"
+   },
+   {
+    "gold_rows": 46,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "C003",
+    "layout": "C"
+   },
+   {
+    "gold_rows": 47,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "C004",
+    "layout": "C"
+   },
+   {
+    "gold_rows": 31,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "C005",
+    "layout": "C"
+   },
+   {
+    "gold_rows": 84,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "C006",
+    "layout": "C"
+   },
+   {
+    "gold_rows": 18,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "C007",
+    "layout": "C"
+   },
+   {
+    "gold_rows": 90,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "C008",
+    "layout": "C"
+   },
+   {
+    "gold_rows": 93,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "C009",
+    "layout": "C"
+   },
+   {
+    "gold_rows": 97,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "D000",
+    "layout": "D"
+   },
+   {
+    "gold_rows": 24,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "D001",
+    "layout": "D"
+   },
+   {
+    "gold_rows": 90,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "D002",
+    "layout": "D"
+   },
+   {
+    "gold_rows": 80,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "D003",
+    "layout": "D"
+   },
+   {
+    "gold_rows": 43,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "D004",
+    "layout": "D"
+   },
+   {
+    "gold_rows": 84,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "D005",
+    "layout": "D"
+   },
+   {
+    "gold_rows": 94,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "D006",
+    "layout": "D"
+   },
+   {
+    "gold_rows": 89,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "D007",
+    "layout": "D"
+   },
+   {
+    "gold_rows": 52,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "D008",
+    "layout": "D"
+   },
+   {
+    "gold_rows": 16,
+    "pred_rows": 0,
+    "matched": 0,
+    "balance_ok": 0,
+    "narration_ok": 0,
+    "exact": false,
+    "reconciled": false,
+    "id": "D009",
+    "layout": "D"
+   }
+  ]
+ }
+}

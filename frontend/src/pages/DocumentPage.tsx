@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { documentsApi, errorMessage, httpStatus } from '../api';
 import ExtractionPanel from '../components/ExtractionPanel';
+import StatementPanel from '../components/StatementPanel';
 import { FlagList, InjectionBanner } from '../components/SecurityFlags';
 import { DocTypeBadge } from '../components/Signals';
 import { Badge } from '../components/ui/Badge';
@@ -25,6 +26,8 @@ export default function DocumentPage() {
   const { id: idParam } = useParams<{ id: string }>();
   const id = idParam && /^\d+$/.test(idParam) ? Number(idParam) : NaN;
   const navigate = useNavigate();
+  const [search] = useSearchParams();
+  const focusRow = /^\d+$/.test(search.get('row') ?? '') ? Number(search.get('row')) : null;
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -376,6 +379,8 @@ export default function DocumentPage() {
             </Card>
 
             {!limited ? <ExtractionPanel documentId={doc.id} docType={doc.doc_type} /> : null}
+
+            {!limited && /\.(pdf|json|xml)$/i.test(doc.filename ?? '') ? <StatementPanel documentId={doc.id} autoLoad={doc.doc_type === 'bank_statement' || focusRow != null} focusSeq={focusRow} /> : null}
           </div>
 
           <div className="space-y-6">

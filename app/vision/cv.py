@@ -32,8 +32,9 @@ except Exception:  # pragma: no cover
 
 try:
     import pytesseract
-    if settings.tesseract_cmd:
-        pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
+    from app.vision.ocr_words import tesseract_cmd as _tesseract_cmd
+    if _tesseract_cmd():  # TESSERACT_CMD, PATH, or the default Windows install location
+        pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd()
     try:
         pytesseract.get_tesseract_version()
         TESSERACT = True

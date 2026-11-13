@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.ai import llm
 from app.ml.insights import split_sentences
-from app.ml.retrieval import BM25, get_index, tokenize
+from app.ml.retrieval import BM25, get_index, memory_index, tokenize
 
 
 def _pseudo_query(text: str, bm25: BM25, rng: random.Random) -> str:
@@ -36,8 +36,9 @@ def _llm_questions(texts: list[str]) -> list[str]:
 
 def evaluate(db: Session, tenant_id: int, sample_size: int = 20, use_llm: bool = True, seed: int = 7) -> dict:
     t0 = time.perf_counter()
-    index = get_index(db, tenant_id)
-    pool = [r for r in index.records if len(r.text) > 200]
+    index = get_index(db, tenant_id)          # searches run on the active backend
+    corpus = memory_index(db, tenant_id)      # sampling and pseudo-query term weights
+    pool = [r for r in corpus.records if len(r.text) > 200]
     if len(pool) < 3:
         return {"n": 0, "detail": "Need at least 3 substantial chunks - upload more documents."}
     rng = random.Random(seed)
@@ -50,7 +51,7 @@ def evaluate(db: Session, tenant_id: int, sample_size: int = 20, use_llm: bool =
         except Exception:
             queries = []
     if not queries:
-        queries = [_pseudo_query(r.text, index.bm25, rng) for r in sample]
+        queries = [_pseudo_query(r.text, corpus.bm25, rng) for r in sample]
 
     def run(strategy: str, rerank: bool) -> tuple[float, float]:
         hits5, rr = 0, 0.0
@@ -70,4 +71,5 @@ def evaluate(db: Session, tenant_id: int, sample_size: int = 20, use_llm: bool =
             "hit_rate_at_5": hybrid[0], "mrr": hybrid[1],
             "dense_only_hit_rate": dense[0], "dense_only_mrr": dense[1],
             "bm25_only_hit_rate": bm[0], "bm25_only_mrr": bm[1],
-            "embedding_model": index.model_name, "ms": int((time.perf_counter() - t0) * 1000)}
+            "embedding_model": index.model_name, "retrieval_backend": index.backend,
+            "ms": int((time.perf_counter() - t0) * 1000)}

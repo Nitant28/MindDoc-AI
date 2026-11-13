@@ -29,6 +29,20 @@ import type {
   UpdateEmailBody,
   UploadResponse,
   VisionAnalysis,
+  DocumentStatus,
+  StatementAnalysis,
+  AAImportResponse,
+  FlowGraph,
+  PartyDetail,
+  PartyReviewItem,
+  PartySummary,
+  ResolveResult,
+  BankAccountView,
+  FindingStatus,
+  FindingSummary,
+  FindingView,
+  ReportSummary,
+  ReportView,
 } from './types';
 
 const envUrl = import.meta.env.VITE_API_URL?.trim();
@@ -131,6 +145,13 @@ export const authApi = {
 export const documentsApi = {
   list: () => api.get<DocumentSummary[]>('/documents/list').then((r) => arr(r.data)),
   get: (id: number) => api.get<DocumentDetail>(`/documents/${id}`).then((r) => r.data),
+  /** Import a decrypted Account Aggregator deposit payload (ReBIT JSON/XML) the customer already holds. */
+  importAa: (file: File, consentRef?: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (consentRef && consentRef.trim()) form.append('consent_ref', consentRef.trim());
+    return api.post<AAImportResponse>('/documents/import-aa', form, { timeout: 300_000 }).then((r) => r.data);
+  },
   upload: (file: File, onProgress?: (percent: number) => void, signal?: AbortSignal) => {
     const form = new FormData();
     form.append('file', file);
@@ -146,13 +167,20 @@ export const documentsApi = {
       })
       .then((r) => r.data);
   },
+  status: (id: number) => api.get<DocumentStatus>(`/documents/${id}/status`).then((r) => r.data),
+  statement: (id: number, refresh = false) =>
+    api
+      .get<StatementAnalysis>(`/documents/${id}/statement`, { params: { refresh: refresh || undefined }, timeout: 120_000 })
+      .then((r) => r.data),
+  reprocess: (id: number) => api.post<DocumentStatus>(`/documents/${id}/reprocess`).then((r) => r.data),
   remove: (id: number) => api.delete<MessageResponse>(`/documents/delete/${id}`).then((r) => r.data),
   rename: (id: number, filename: string) =>
     api.put<MessageResponse>(`/documents/edit/${id}`, null, { params: { filename } }).then((r) => r.data),
   /** v2.1 pixel-level citation. Caller must URL.revokeObjectURL(result.url) when done. */
-  pageImage: async (id: number, page: number, chunkId?: number | null): Promise<PageImage> => {
+  /** `box` = [x0, top, x1, bottom] in tenths of a point (from /statement) highlights that exact region. */
+  pageImage: async (id: number, page: number, chunkId?: number | null, box?: number[] | null): Promise<PageImage> => {
     const r = await api.get<Blob>(`/documents/${id}/page/${page}/image`, {
-      params: { chunk_id: chunkId ?? undefined },
+      params: { chunk_id: chunkId ?? undefined, box: box && box.length === 4 ? box.join(',') : undefined },
       responseType: 'blob',
       timeout: 60_000,
     });
@@ -339,3 +367,45 @@ export async function streamChat(
   onEvent({ type: 'final', ...answer });
   return answer;
 }
+
+/** Entity resolution, review queue, reversible merges and flow graph (R5). */
+export const partiesApi = {
+  resolve: () => api.post<ResolveResult>('/parties/resolve', null, { timeout: 180_000 }).then((r) => r.data),
+  list: () => api.get<{ case_id: number; parties: PartySummary[] }>('/parties').then((r) => r.data.parties),
+  detail: (id: number) => api.get<PartyDetail>(`/parties/${id}`).then((r) => r.data),
+  reviews: (state: 'open' | 'merged' | 'kept_separate' = 'open') =>
+    api.get<{ reviews: PartyReviewItem[] }>('/parties/reviews', { params: { state } }).then((r) => r.data.reviews),
+  decide: (id: number, decision: 'merge' | 'keep_separate', reason: string, overrideConflict = false) =>
+    api
+      .post<{ id: number; state: string }>(`/parties/reviews/${id}`, { decision, reason, override_conflict: overrideConflict })
+      .then((r) => r.data),
+  unmerge: (eventId: number, reason: string) =>
+    api.post<{ event_id: number; still_connected: boolean }>('/parties/unmerge', { event_id: eventId, reason }).then((r) => r.data),
+  graph: () => api.get<FlowGraph>('/parties/graph').then((r) => r.data),
+};
+
+/** Bank accounts, findings and frozen reports (R5, design F §4). */
+export const accountsApi = {
+  list: () => api.get<{ accounts: BankAccountView[] }>('/accounts').then((r) => r.data.accounts),
+  setHolder: (id: number, name: string, reason: string) =>
+    api.put<{ id: number; holder: string; holder_source: string }>(`/accounts/${id}/holder`, { name, reason }).then((r) => r.data),
+};
+
+export const findingsApi = {
+  list: () => api.get<{ findings: FindingSummary[] }>('/findings').then((r) => r.data.findings),
+  get: (id: number) => api.get<FindingView>(`/findings/${id}`).then((r) => r.data),
+  create: (title: string, statement: string, support: Array<{ claim_id: number; role?: string }>) =>
+    api.post<FindingView>('/findings', { title, statement, support }).then((r) => r.data),
+  revise: (id: number, body: { title?: string; statement?: string; status?: FindingStatus; note?: string }) =>
+    api.post<FindingView>(`/findings/${id}/revise`, body).then((r) => r.data),
+  refresh: (id: number) => api.post<FindingView>(`/findings/${id}/refresh`).then((r) => r.data),
+};
+
+export const reportsApi = {
+  list: () => api.get<{ reports: ReportSummary[] }>('/reports').then((r) => r.data.reports),
+  get: (id: number) => api.get<ReportView>(`/reports/${id}`).then((r) => r.data),
+  issue: (title: string, findingIds: number[]) =>
+    api.post<ReportView>('/reports', { title, finding_ids: findingIds }).then((r) => r.data),
+  /** The frozen snapshot exactly as hashed. */
+  export: (id: number) => api.get<Blob>(`/reports/${id}/export`, { responseType: 'blob' }).then((r) => r.data),
+};

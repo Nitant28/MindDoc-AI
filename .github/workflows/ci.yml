@@ -20,7 +20,7 @@ jobs:
         # EasyOCR pulls in is built for CUDA torch and breaks the transformers import.
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt -r requirements-ml.txt
+          pip install -r requirements.txt -r requirements-ml.txt -r requirements-dev.txt
       - name: Cache Hugging Face models
         uses: actions/cache@v4
         with:
@@ -35,6 +35,40 @@ jobs:
       - name: Tests (offline, isolated database)
         env:
           REQUIRE_ML_MODELS: "1"  # fail, don't skip, if the semantic tests can't load the model
+        run: python -m pytest tests -q -p no:cacheprovider
+
+  backend-postgres:
+    # The full suite on PostgreSQL 18 + pgvector with row-level security, migrations and real job concurrency.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install system packages
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+      - name: Install slim dependencies (no torch)
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Migration up/down/up on a clean database
+        env:
+          DATABASE_URL: postgresql+pg8000://postgres:postgres@localhost:5432/postgres
+        run: |
+          python -m alembic upgrade head
+          python -m alembic downgrade base
+          python -m alembic upgrade head
+      - name: Tests on PostgreSQL (slim profile)
+        env:
+          TEST_DB: postgres
+          TEST_DATABASE_URL: postgresql+pg8000://postgres:postgres@localhost:5432/postgres
         run: python -m pytest tests -q -p no:cacheprovider
 
   frontend:
@@ -67,12 +101,21 @@ jobs:
           for i in $(seq 1 60); do curl -fsS localhost:10000/api/health && break; sleep 2; done
           curl -fsS localhost:10000/api/health | grep -q healthy
           curl -fsS localhost:10000/ | grep -qi '<div id="root">'
-      - name: Smoke test (register, upload, ask)
+      - name: Smoke test (register, async upload + worker, ask)
         run: |
           TOKEN=$(curl -fsS -X POST localhost:10000/api/auth/register -H 'Content-Type: application/json' \
             -d '{"email":"ci@example.com","password":"correct-horse-1"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
           printf 'Either party may terminate this agreement with 60 days written notice.\n' > contract.txt
-          curl -fsS -H "Authorization: Bearer $TOKEN" -F file=@contract.txt localhost:10000/api/documents/upload > /dev/null
+          DOC=$(curl -fsS -H "Authorization: Bearer $TOKEN" -F file=@contract.txt localhost:10000/api/documents/upload \
+                | python3 -c 'import sys,json;print(json.load(sys.stdin)["document_id"])')
+          for i in $(seq 1 60); do   # async ingestion: the embedded worker processes the upload
+            STATE=$(curl -fsS -H "Authorization: Bearer $TOKEN" localhost:10000/api/documents/$DOC/status \
+                    | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])')
+            [ "$STATE" = "completed" ] && break
+            [ "$STATE" = "failed" ] && { echo "ingestion failed"; exit 1; }
+            sleep 1
+          done
+          echo "document $DOC: $STATE"; [ "$STATE" = "completed" ]
           curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
             -d '{"query":"How much notice is needed to terminate?"}' localhost:10000/api/chat/query | grep -q '60 days'
           docker stats --no-stream --format 'memory {{.MemUsage}}' md

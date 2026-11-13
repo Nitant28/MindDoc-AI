@@ -1,0 +1,544 @@
+{
+  "text": {
+    "split": "test",
+    "source_prior": "text",
+    "histories": 300,
+    "seed_base": 90000,
+    "clean": {
+      "statements": 300,
+      "rows": 11941,
+      "false_alarm_rate": {
+        "k": 0,
+        "n": 300,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0126
+        ]
+      }
+    },
+    "faults": {
+      "amount_digit": {
+        "injected": 300,
+        "detected": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "localised_first_failure": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_in_hypotheses": {
+          "k": 298,
+          "n": 300,
+          "rate": 0.9933,
+          "ci95": [
+            0.976,
+            0.9982
+          ]
+        },
+        "diagnosis_ranked_first": {
+          "k": 0,
+          "n": 300,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.0126
+          ]
+        },
+        "failing_row_with_no_hypothesis": 0,
+        "mean_failed_rows": 1.0,
+        "follow_on_failures_pointing_to_root": {
+          "k": 0,
+          "n": 0,
+          "rate": null,
+          "ci95": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "direction_swap": {
+        "injected": 300,
+        "detected": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "localised_first_failure": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_in_hypotheses": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_ranked_first": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "failing_row_with_no_hypothesis": 0,
+        "mean_failed_rows": 1.0,
+        "follow_on_failures_pointing_to_root": {
+          "k": 0,
+          "n": 0,
+          "rate": null,
+          "ci95": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "balance_digit": {
+        "injected": 300,
+        "detected": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "localised_first_failure": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_in_hypotheses": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_ranked_first": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "failing_row_with_no_hypothesis": 0,
+        "mean_failed_rows": 2.0,
+        "follow_on_failures_pointing_to_root": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        }
+      },
+      "dropped_row": {
+        "injected": 300,
+        "detected": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "localised_first_failure": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_in_hypotheses": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_ranked_first": {
+          "k": 299,
+          "n": 300,
+          "rate": 0.9967,
+          "ci95": [
+            0.9814,
+            0.9994
+          ]
+        },
+        "failing_row_with_no_hypothesis": 0,
+        "mean_failed_rows": 1.0,
+        "follow_on_failures_pointing_to_root": {
+          "k": 0,
+          "n": 0,
+          "rate": null,
+          "ci95": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "same_day_swap": {
+        "injected": 300,
+        "detected": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "localised_first_failure": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_in_hypotheses": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_ranked_first": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "failing_row_with_no_hypothesis": 0,
+        "mean_failed_rows": 2.9,
+        "follow_on_failures_pointing_to_root": {
+          "k": 569,
+          "n": 569,
+          "rate": 1.0,
+          "ci95": [
+            0.9933,
+            1.0
+          ]
+        }
+      }
+    }
+  },
+  "ocr": {
+    "split": "test",
+    "source_prior": "ocr",
+    "histories": 300,
+    "seed_base": 90000,
+    "clean": {
+      "statements": 300,
+      "rows": 11941,
+      "false_alarm_rate": {
+        "k": 0,
+        "n": 300,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0126
+        ]
+      }
+    },
+    "faults": {
+      "amount_digit": {
+        "injected": 300,
+        "detected": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "localised_first_failure": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_in_hypotheses": {
+          "k": 298,
+          "n": 300,
+          "rate": 0.9933,
+          "ci95": [
+            0.976,
+            0.9982
+          ]
+        },
+        "diagnosis_ranked_first": {
+          "k": 298,
+          "n": 300,
+          "rate": 0.9933,
+          "ci95": [
+            0.976,
+            0.9982
+          ]
+        },
+        "failing_row_with_no_hypothesis": 0,
+        "mean_failed_rows": 1.0,
+        "follow_on_failures_pointing_to_root": {
+          "k": 0,
+          "n": 0,
+          "rate": null,
+          "ci95": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "direction_swap": {
+        "injected": 300,
+        "detected": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "localised_first_failure": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_in_hypotheses": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_ranked_first": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "failing_row_with_no_hypothesis": 0,
+        "mean_failed_rows": 1.0,
+        "follow_on_failures_pointing_to_root": {
+          "k": 0,
+          "n": 0,
+          "rate": null,
+          "ci95": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "balance_digit": {
+        "injected": 300,
+        "detected": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "localised_first_failure": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_in_hypotheses": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_ranked_first": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "failing_row_with_no_hypothesis": 0,
+        "mean_failed_rows": 2.0,
+        "follow_on_failures_pointing_to_root": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        }
+      },
+      "dropped_row": {
+        "injected": 300,
+        "detected": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "localised_first_failure": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_in_hypotheses": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_ranked_first": {
+          "k": 275,
+          "n": 300,
+          "rate": 0.9167,
+          "ci95": [
+            0.8799,
+            0.9429
+          ]
+        },
+        "failing_row_with_no_hypothesis": 0,
+        "mean_failed_rows": 1.0,
+        "follow_on_failures_pointing_to_root": {
+          "k": 0,
+          "n": 0,
+          "rate": null,
+          "ci95": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "same_day_swap": {
+        "injected": 300,
+        "detected": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "localised_first_failure": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_in_hypotheses": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "diagnosis_ranked_first": {
+          "k": 300,
+          "n": 300,
+          "rate": 1.0,
+          "ci95": [
+            0.9874,
+            1.0
+          ]
+        },
+        "failing_row_with_no_hypothesis": 0,
+        "mean_failed_rows": 2.9,
+        "follow_on_failures_pointing_to_root": {
+          "k": 569,
+          "n": 569,
+          "rate": 1.0,
+          "ci95": [
+            0.9933,
+            1.0
+          ]
+        }
+      }
+    }
+  }
+}

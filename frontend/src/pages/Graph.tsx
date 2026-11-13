@@ -218,7 +218,7 @@ export default function GraphPage() {
     <Page wide>
       <PageHeader
         title="Knowledge graph"
-        description="The workspace ontology: entities extracted from your documents and how they co-occur or relate."
+        description="Entities extracted from your documents, the relations the documents state, and which names appear together."
         actions={
           <Button icon="refresh" onClick={() => void load()} loading={loading}>
             Refresh
@@ -260,7 +260,8 @@ export default function GraphPage() {
             Labels
           </label>
           <span className="ml-auto text-xs tabular-nums text-subtle">
-            {visible.nodes.length} entities · {visible.edges.length} relations
+            {visible.nodes.length} entities · {visible.edges.filter((e) => !e.weak).length} relations ·{' '}
+            {visible.edges.filter((e) => e.weak).length} named together
           </span>
         </CardBody>
       </Card>
@@ -410,7 +411,7 @@ export default function GraphPage() {
             ) : (
               <CardBody>
                 <p className="text-xs leading-relaxed text-muted">
-                  Node size reflects how often an entity is mentioned; edge thickness reflects co-occurrence strength. Hover to preview, click to
+                  Node size reflects how often an entity is mentioned. Solid edges are relations stated in a document; dashed edges only mean two names appear in the same passage, which is not a relationship. Hover to preview, click to
                   pin, or use search to jump to an entity.
                 </p>
               </CardBody>

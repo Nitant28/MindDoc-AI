@@ -1,0 +1,19 @@
+{
+  "_doc": "Header phrases -> column role (ADR-0011). Extend by adding entries, not code. Matching is case-insensitive on punctuation-stripped phrases; longest phrase wins.",
+  "roles": {
+    "date": ["date", "txn date", "tran date", "trans date", "transaction date", "posting date", "post date", "txn dt", "tran dt"],
+    "value_date": ["value date", "value dt", "val date", "val dt"],
+    "narration": ["narration", "particulars", "description", "details", "transaction details", "remarks", "transaction remarks", "transaction description"],
+    "ref": ["chq ref no", "chq no", "cheque no", "ref no", "ref no cheque no", "reference", "reference no", "chq ref", "instrument no", "utr no"],
+    "debit": ["withdrawal", "withdrawals", "withdrawal amt", "withdrawal amount", "debit", "debits", "debit amount", "debit amt", "dr amount"],
+    "credit": ["deposit", "deposits", "deposit amt", "deposit amount", "credit", "credits", "credit amount", "credit amt", "cr amount"],
+    "amount": ["amount", "amount inr", "txn amount", "transaction amount", "amount rs"],
+    "drcr": ["dr cr", "cr dr", "dr/cr", "cr/dr", "type"],
+    "balance": ["balance", "closing balance", "running balance", "balance inr", "available balance", "balance amount", "bal"]
+  },
+  "special_rows": {
+    "opening": ["opening balance", "balance b f", "balance bf", "balance brought forward", "brought forward", "b f"],
+    "carry_out": ["balance c f", "balance cf", "carried forward", "c f"],
+    "closing": ["closing balance", "total"]
+  }
+}

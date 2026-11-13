@@ -122,6 +122,8 @@ export interface DocumentSummary {
   chunk_count?: number | null;
   quality_score?: number | null;
   pii_count?: number | null;
+  status?: string | null;
+  status_detail?: string | null;
 }
 
 /** `GET /documents/{id}` and `analysis` of the upload response. */
@@ -145,6 +147,9 @@ export interface UploadResponse {
   message: string;
   document_id: number;
   filename: string;
+  /** queued | processing | completed | failed (asynchronous ingestion, v2.2) */
+  status?: string | null;
+  status_url?: string | null;
   characters_extracted?: number | null;
   preview?: string | null;
   analysis?: DocumentDetail | null;
@@ -204,6 +209,8 @@ export interface ClaimCheck {
   needs_review?: boolean | null;
   /** NLI model's max "unsupported" probability for the sentence, when the model ran. */
   nli?: number | null;
+  /** v3 verifier: figures not printed in the source but recomputed from it, with the arithmetic. */
+  derivations?: string[] | null;
 }
 
 export interface Groundedness {
@@ -310,6 +317,8 @@ export interface GraphEdge {
   target: string;
   relation: string;
   weight: number;
+  /** A weak signal (named in the same passage, or an account holder link), drawn dashed; never a relationship. */
+  weak?: boolean;
 }
 
 export interface GraphData {
@@ -456,4 +465,327 @@ export interface VisionAnalysis {
 
 export interface ApiErrorBody {
   detail?: string | Array<{ msg?: string; loc?: Array<string | number> }>;
+}
+
+/** Processing state of an uploaded document (GET /documents/{id}/status). */
+export interface DocumentStatus {
+  document_id: number;
+  filename: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed' | string;
+  detail?: string | null;
+  job?: {
+    id: number;
+    state: 'queued' | 'running' | 'succeeded' | 'dead' | 'cancelled' | string;
+    attempts: number;
+    max_attempts: number;
+    progress?: { stage?: string; detail?: string } | null;
+    last_error?: string | null;
+    updated_at?: string | null;
+  } | null;
+}
+
+/** GET /documents/{id}/statement — bank-statement engine output (amounts in paise). */
+export interface StatementTxn {
+  seq: number;
+  date: string;
+  narration: string;
+  debit_minor: number;
+  credit_minor: number;
+  balance_minor: number | null;
+  page: number;
+  direction_source: 'column' | 'suffix' | 'inferred_from_balance' | 'unknown' | string;
+  /** x0, top, x1, bottom in tenths of a point (for the page highlight); null for structured (AA) data. */
+  box: number[] | null;
+  value_date?: string | null;
+  reference?: string | null;
+  /** Source transaction id (AA txnId). */
+  external_id?: string | null;
+  mode?: string | null;
+}
+
+export interface StatementCheck {
+  scope: 'row' | 'statement' | 'opening' | string;
+  seq: number | null;
+  status: 'pass' | 'fail' | 'not_checkable' | string;
+  reason: string;
+  expected_minor: number | null;
+  observed_minor: number | null;
+  diff_minor: number | null;
+  hypotheses: Array<{ code: string; detail: string; [k: string]: unknown }>;
+}
+
+export interface StatementAnalysis {
+  document_id: number;
+  is_statement: boolean;
+  /** Statement-engine version that produced the stored result. */
+  engine_version?: string;
+  analysed_at?: string | null;
+  period?: { start: string | null; end: string | null };
+  source?: { type: 'pdf_text' | 'aa_deposit' | string; consent_ref: string | null; payload_sha256: string | null; schema_version: string | null };
+  status?: 'reconciled' | 'reconciled_with_flags' | 'needs_review' | 'not_checkable' | string;
+  currency?: string;
+  header?: {
+    ifsc?: string | null;
+    account?: string | null;
+    bank_account_id?: number | null;
+    holder?: string | null;
+    holder_source?: 'statement_header' | 'analyst' | string | null;
+  };
+  pages?: number;
+  warnings?: string[];
+  summary?: {
+    opening_minor: number | null;
+    closing_minor: number | null;
+    transactions: number;
+    total_debit_minor: number;
+    total_credit_minor: number;
+    failed_checks: number;
+    inferred_directions: number;
+  };
+  transactions?: StatementTxn[];
+  checks?: StatementCheck[];
+}
+
+/** POST /documents/import-aa */
+export interface AAImportResponse {
+  message: string;
+  document_id: number;
+  created: boolean;
+  status: string;
+  transactions: number;
+  warnings: string[];
+}
+
+/* ------------------------------------------------------------------ Parties (R5 entity resolution) */
+export interface PartyIdentifierView {
+  scheme: 'PAN' | 'GSTIN' | 'UPI_VPA' | 'ACCOUNT_IFSC' | string;
+  value: string;
+}
+
+export interface PartySummary {
+  party_id: number;
+  name: string;
+  kind: 'org' | 'person' | 'unknown' | string;
+  records: number;
+  member_ids: number[];
+  names: string[];
+  identifiers: PartyIdentifierView[];
+  transactions: number;
+  debit_minor: number;
+  credit_minor: number;
+  documents: number[];
+  /** Bank accounts this party holds (statement header or analyst). */
+  accounts?: Array<{ id: number; masked: string; ifsc: string | null }>;
+}
+
+export interface IdentityEventView {
+  id: number;
+  kind: 'merge' | 'unmerge';
+  a: { id: number; name: string | null };
+  b: { id: number; name: string | null };
+  method: string;
+  probability: number | null;
+  reason: string;
+  features: Record<string, unknown>;
+  decided_by: number | null;
+  decided_at: string;
+  reverses_event_id: number | null;
+  reversed: boolean;
+}
+
+export interface PartyMentionView {
+  party_record_id: number;
+  source_type: string;
+  source_id: number;
+  document_id: number | null;
+  channel: string | null;
+  text: string | null;
+  date: string | null;
+  debit_minor: number | null;
+  credit_minor: number | null;
+  page: number | null;
+  seq: number | null;
+}
+
+export interface ClaimView {
+  id: number;
+  claim_key: string;
+  kind: 'TRANSFERRED_TO' | 'RECEIVED_FROM' | string;
+  subject_document_id: number | null;
+  subject_label: string | null;
+  party_record_id: number | null;
+  party_id: number | null;
+  party_name: string | null;
+  amount_minor: number;
+  currency: string;
+  date: string | null;
+  status: 'reconciled' | 'extracted' | 'needs_review' | string;
+  method: string;
+  version: { recorded_at: string; superseded_at: string | null; supersedes_id: number | null };
+  evidence: Array<{ document_id: number | null; page: number | null; seq: number | null; quote: string | null; box: number[] | null }>;
+}
+
+export interface PartyDetail extends PartySummary {
+  canonical_id: number;
+  claims: ClaimView[];
+  mentions: PartyMentionView[];
+  events: IdentityEventView[];
+}
+
+export interface PartyReviewItem {
+  id: number;
+  state: string;
+  reason: string;
+  method: string;
+  probability: number | null;
+  features: Record<string, unknown>;
+  a: PartySummary | null;
+  b: PartySummary | null;
+  a_record_id: number;
+  b_record_id: number;
+}
+
+export interface ResolveResult {
+  case_id: number;
+  parties_created: number;
+  mentions_added: number;
+  records: number;
+  auto_merges: number;
+  review_items: number;
+  skipped_by_human_decision: number;
+  model: string;
+}
+
+export interface FlowGraph {
+  case_id: number;
+  nodes: Array<{
+    id: string;
+    type: 'account' | 'party';
+    label: string;
+    kind?: string;
+    party_id?: number;
+    document_id?: number;
+    document_ids?: number[];
+    bank_account_id?: number | null;
+    holder?: string | null;
+    holds?: string[];
+  }>;
+  edges: Array<{
+    source: string;
+    target: string;
+    /** flow: money between an account and a party; holds: a party holds the account. */
+    kind: 'flow' | 'holds';
+    evidence?: Array<{ source: string; document_id?: number; page?: number; set_by?: number | null; set_at?: string | null }>;
+    out_minor: number;
+    in_minor: number;
+    transactions: number[];
+    claims: Array<{
+      id: number;
+      kind: string;
+      date: string | null;
+      amount_minor: number;
+      status: string;
+      document_id: number | null;
+      page: number | null;
+      seq: number | null;
+      quote: string | null;
+    }>;
+  }>;
+}
+
+// ------------------------------------------------------------------ R5: accounts, findings, frozen reports
+
+export interface BankAccountView {
+  id: number;
+  account_masked: string;
+  ifsc: string | null;
+  account_type: string | null;
+  hash_basis: 'full' | 'masked' | string;
+  holder: string | null;
+  holder_source: 'statement_header' | 'analyst' | string | null;
+  holder_set_at: string | null;
+  documents: number[];
+}
+
+export type FindingStatus = 'draft' | 'proposed' | 'approved' | 'rejected';
+
+export interface FindingSupportView {
+  role: 'supports' | 'contradicts' | 'context';
+  claim: {
+    id: number;
+    claim_key: string;
+    kind: string;
+    subject: string | null;
+    party: string | null;
+    amount_minor: number;
+    currency: string;
+    date: string | null;
+    status: string;
+    method: string;
+    recorded_at: string;
+  };
+  evidence: Array<{
+    document_id: number | null;
+    filename: string | null;
+    source_sha256: string | null;
+    page: number | null;
+    seq: number | null;
+    box: number[] | null;
+    quote: string | null;
+    external_id: string | null;
+  }>;
+  changed_since?: { superseded_at: string; reason: string | null; current_claim_id: number | null } | null;
+}
+
+export interface FindingView {
+  id: number;
+  finding_key: string;
+  version: number;
+  title: string;
+  statement: string;
+  status: FindingStatus;
+  method: string;
+  evidence_snapshot_at: string;
+  created_at: string;
+  created_by: number | null;
+  change_note: string | null;
+  supersedes_id: number | null;
+  superseded_at?: string | null;
+  stale?: boolean;
+  support: FindingSupportView[];
+  history?: Array<{ id: number; version: number; status: FindingStatus; change_note: string | null; created_at: string; superseded_at: string | null }>;
+}
+
+export interface FindingSummary {
+  id: number;
+  finding_key: string;
+  version: number;
+  title: string;
+  status: FindingStatus;
+  stale: boolean;
+  created_at: string;
+  claims: number;
+}
+
+export interface ReportSummary {
+  id: number;
+  title: string;
+  frozen_at: string;
+  content_hash: string;
+  findings: number;
+}
+
+export interface ReportView {
+  id: number;
+  title: string;
+  frozen_at: string;
+  content_hash: string;
+  intact: boolean;
+  finding_ids: number[];
+  new_evidence_since_report: Array<{ finding_id: number; title: string; claims_changed: boolean; newer_version_id: number | null }>;
+  snapshot: {
+    report: { title: string; case: { id: number; title: string | null }; frozen_at: string; issued_by: string | null };
+    findings: FindingView[];
+    notice: string;
+  };
 }

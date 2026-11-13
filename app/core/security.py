@@ -67,7 +67,7 @@ class RateLimiter:
             return True
 
 
-auth_limiter = RateLimiter(limit=10, window_s=60)
+auth_limiter = RateLimiter(limit=settings.rate_auth_per_min, window_s=60)
 # Per-user limits on expensive endpoints (CPU-heavy parsing, LLM calls). In-process: one limiter per API process.
 upload_limiter = RateLimiter(limit=settings.rate_upload_per_min, window_s=60)
 query_limiter = RateLimiter(limit=settings.rate_query_per_min, window_s=60)

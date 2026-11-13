@@ -1,0 +1,304 @@
+{
+ "engine": {
+  "summary": {
+   "statements": 20,
+   "gold_rows": 1237,
+   "pred_rows": 1237,
+   "matched": 1237,
+   "row_precision": 1.0,
+   "row_recall": 1.0,
+   "row_recall_ci": [
+    0.9969040367440938,
+    1.0
+   ],
+   "row_f1": 1.0,
+   "balance_acc": 1.0,
+   "narration_acc": 1.0,
+   "statement_exact": 1.0,
+   "statement_exact_ci": [
+    0.8388698745050667,
+    1.0
+   ],
+   "reconciled": 1.0,
+   "reconciled_ci": [
+    0.8388698745050667,
+    1.0
+   ],
+   "seconds_per_page": 0.5068138199999036,
+   "by_layout": {
+    "E": {
+     "statements": 10,
+     "gold_rows": 635,
+     "pred_rows": 635,
+     "matched": 635,
+     "row_precision": 1.0,
+     "row_recall": 1.0,
+     "row_recall_ci": [
+      0.9939866157745518,
+      1.0
+     ],
+     "row_f1": 1.0,
+     "balance_acc": 1.0,
+     "narration_acc": 1.0,
+     "statement_exact": 1.0,
+     "statement_exact_ci": [
+      0.7224598312333834,
+      1.0
+     ],
+     "reconciled": 1.0,
+     "reconciled_ci": [
+      0.7224598312333834,
+      1.0
+     ]
+    },
+    "F": {
+     "statements": 10,
+     "gold_rows": 602,
+     "pred_rows": 602,
+     "matched": 602,
+     "row_precision": 1.0,
+     "row_recall": 1.0,
+     "row_recall_ci": [
+      0.9936590686410443,
+      1.0
+     ],
+     "row_f1": 1.0,
+     "balance_acc": 1.0,
+     "narration_acc": 1.0,
+     "statement_exact": 1.0,
+     "statement_exact_ci": [
+      0.7224598312333834,
+      1.0
+     ],
+     "reconciled": 1.0,
+     "reconciled_ci": [
+      0.7224598312333834,
+      1.0
+     ]
+    }
+   }
+  },
+  "statements": [
+   {
+    "gold_rows": 71,
+    "pred_rows": 71,
+    "matched": 71,
+    "balance_ok": 71,
+    "narration_ok": 71,
+    "exact": true,
+    "reconciled": true,
+    "id": "E000",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 75,
+    "pred_rows": 75,
+    "matched": 75,
+    "balance_ok": 75,
+    "narration_ok": 75,
+    "exact": true,
+    "reconciled": true,
+    "id": "E001",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 104,
+    "pred_rows": 104,
+    "matched": 104,
+    "balance_ok": 104,
+    "narration_ok": 104,
+    "exact": true,
+    "reconciled": true,
+    "id": "E002",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 34,
+    "pred_rows": 34,
+    "matched": 34,
+    "balance_ok": 34,
+    "narration_ok": 34,
+    "exact": true,
+    "reconciled": true,
+    "id": "E003",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 55,
+    "pred_rows": 55,
+    "matched": 55,
+    "balance_ok": 55,
+    "narration_ok": 55,
+    "exact": true,
+    "reconciled": true,
+    "id": "E004",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 45,
+    "pred_rows": 45,
+    "matched": 45,
+    "balance_ok": 45,
+    "narration_ok": 45,
+    "exact": true,
+    "reconciled": true,
+    "id": "E005",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 82,
+    "pred_rows": 82,
+    "matched": 82,
+    "balance_ok": 82,
+    "narration_ok": 82,
+    "exact": true,
+    "reconciled": true,
+    "id": "E006",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 27,
+    "pred_rows": 27,
+    "matched": 27,
+    "balance_ok": 27,
+    "narration_ok": 27,
+    "exact": true,
+    "reconciled": true,
+    "id": "E007",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 68,
+    "pred_rows": 68,
+    "matched": 68,
+    "balance_ok": 68,
+    "narration_ok": 68,
+    "exact": true,
+    "reconciled": true,
+    "id": "E008",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 74,
+    "pred_rows": 74,
+    "matched": 74,
+    "balance_ok": 74,
+    "narration_ok": 74,
+    "exact": true,
+    "reconciled": true,
+    "id": "E009",
+    "layout": "E"
+   },
+   {
+    "gold_rows": 21,
+    "pred_rows": 21,
+    "matched": 21,
+    "balance_ok": 21,
+    "narration_ok": 21,
+    "exact": true,
+    "reconciled": true,
+    "id": "F000",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 29,
+    "pred_rows": 29,
+    "matched": 29,
+    "balance_ok": 29,
+    "narration_ok": 29,
+    "exact": true,
+    "reconciled": true,
+    "id": "F001",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 95,
+    "pred_rows": 95,
+    "matched": 95,
+    "balance_ok": 95,
+    "narration_ok": 95,
+    "exact": true,
+    "reconciled": true,
+    "id": "F002",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 57,
+    "pred_rows": 57,
+    "matched": 57,
+    "balance_ok": 57,
+    "narration_ok": 57,
+    "exact": true,
+    "reconciled": true,
+    "id": "F003",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 60,
+    "pred_rows": 60,
+    "matched": 60,
+    "balance_ok": 60,
+    "narration_ok": 60,
+    "exact": true,
+    "reconciled": true,
+    "id": "F004",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 106,
+    "pred_rows": 106,
+    "matched": 106,
+    "balance_ok": 106,
+    "narration_ok": 106,
+    "exact": true,
+    "reconciled": true,
+    "id": "F005",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 16,
+    "pred_rows": 16,
+    "matched": 16,
+    "balance_ok": 16,
+    "narration_ok": 16,
+    "exact": true,
+    "reconciled": true,
+    "id": "F006",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 96,
+    "pred_rows": 96,
+    "matched": 96,
+    "balance_ok": 96,
+    "narration_ok": 96,
+    "exact": true,
+    "reconciled": true,
+    "id": "F007",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 32,
+    "pred_rows": 32,
+    "matched": 32,
+    "balance_ok": 32,
+    "narration_ok": 32,
+    "exact": true,
+    "reconciled": true,
+    "id": "F008",
+    "layout": "F"
+   },
+   {
+    "gold_rows": 90,
+    "pred_rows": 90,
+    "matched": 90,
+    "balance_ok": 90,
+    "narration_ok": 90,
+    "exact": true,
+    "reconciled": true,
+    "id": "F009",
+    "layout": "F"
+   }
+  ]
+ }
+}

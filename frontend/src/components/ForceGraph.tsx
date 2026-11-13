@@ -40,6 +40,7 @@ interface SimEdge {
   s: SimNode;
   t: SimNode;
   w: number;
+  dashed: boolean; // weak signal: drawn dashed
 }
 
 interface Sim {
@@ -181,7 +182,7 @@ const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(function ForceG
       const s = byId.get(e.source);
       const t = byId.get(e.target);
       if (!s || !t || s === t) continue;
-      simEdges.push({ s, t, w: Number.isFinite(e.weight) ? e.weight : 1 });
+      simEdges.push({ s, t, w: Number.isFinite(e.weight) ? e.weight : 1, dashed: !!e.weak });
       if (!neighbors.has(s.id)) neighbors.set(s.id, new Set());
       if (!neighbors.has(t.id)) neighbors.set(t.id, new Set());
       neighbors.get(s.id)?.add(t.id);
@@ -314,11 +315,13 @@ const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(function ForceG
         ctx.globalAlpha = focusId ? (active ? 0.9 : 0.07) : 0.35;
         ctx.strokeStyle = active ? C.edgeActive : C.edge;
         ctx.lineWidth = Math.max(0.6 + Math.log2(1 + e.w) * 0.7, 0.5 / v.k) * (active ? 1.4 : 1);
+        ctx.setLineDash(e.dashed ? [5 / v.k, 4 / v.k] : []);
         ctx.beginPath();
         ctx.moveTo(e.s.x, e.s.y);
         ctx.lineTo(e.t.x, e.t.y);
         ctx.stroke();
       }
+      ctx.setLineDash([]);
 
       for (const n of s.nodes) {
         const isFocus = n.id === focusId;

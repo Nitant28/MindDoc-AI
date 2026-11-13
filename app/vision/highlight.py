@@ -28,6 +28,30 @@ def _fragments(passage: str, max_frags: int = 80) -> list[str]:
     return out
 
 
+def render_pdf_page_boxes(path: str, page_no: int, boxes_pt: list, zoom: float = 2.0) -> tuple[bytes, int]:
+    """Render a page with explicit boxes (points, top-left origin, as produced by pdfplumber) highlighted.
+
+    Uses pypdfium2 (Apache-2.0 / BSD-3) — the licence-clean renderer that replaces PyMuPDF (AGPL) per ADR-0006."""
+    import pypdfium2 as pdfium
+    pdf = pdfium.PdfDocument(path)
+    try:
+        if not 1 <= page_no <= len(pdf):
+            raise IndexError("page out of range")
+        img = pdf[page_no - 1].render(scale=zoom).to_pil().convert("RGBA")
+    finally:
+        pdf.close()
+    if boxes_pt:
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        for x0, top, x1, bottom in boxes_pt:
+            draw.rectangle([x0 * zoom - 3, top * zoom - 3, x1 * zoom + 3, bottom * zoom + 3],
+                           fill=(250, 204, 21, 90), outline=(217, 119, 6, 230), width=2)
+        img = Image.alpha_composite(img, overlay)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PNG", optimize=True)
+    return buf.getvalue(), len(boxes_pt)
+
+
 def render_pdf_page(path: str, page_no: int, passage: Optional[str] = None, zoom: float = 2.0) -> tuple[bytes, int]:
     if fitz is None:
         raise RuntimeError("PyMuPDF not installed")

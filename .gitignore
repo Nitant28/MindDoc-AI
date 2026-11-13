@@ -68,3 +68,7 @@ OllamaSetup.exe
 
 # Uploaded originals
 data/
+
+# StatementBench generated data (reproducible: python -m benchmarks.statements.generator)
+benchmarks/statements/data/
+benchmarks/statements/data_scan*/

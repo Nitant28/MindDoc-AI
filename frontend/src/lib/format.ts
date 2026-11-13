@@ -104,3 +104,15 @@ export const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.max(0, 
 export function uid(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 9)}`;
 }
+
+/** Paise → "1,23,456.78" (Indian grouping). Integer arithmetic only; never goes through floats. */
+export function formatMinor(minor: number | null | undefined): string {
+  if (minor == null) return '—';
+  const neg = minor < 0;
+  const abs = Math.abs(minor);
+  const rupees = Math.floor(abs / 100).toString();
+  const paise = (abs % 100).toString().padStart(2, '0');
+  const last3 = rupees.slice(-3);
+  const rest = rupees.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+  return `${neg ? '-' : ''}${rest ? `${rest},` : ''}${last3}.${paise}`;
+}

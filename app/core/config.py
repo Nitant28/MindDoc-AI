@@ -17,13 +17,26 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 500
     max_image_pixels: int = 40_000_000
     max_docx_uncompressed_mb: int = 200
+    rate_auth_per_min: int = 10        # login/register attempts per IP
     rate_upload_per_min: int = 30
     rate_query_per_min: int = 60
     rate_eval_per_min: int = 5
     storage_dir: str = "./data/uploads"  # originals, for pixel-level citations
+    # PostgreSQL (ADR-0002): connections switch to this non-owner role so row-level security applies.
+    db_app_role: str = "minddoc_app"
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    # Background processing (ADR-0003/0013): embedded worker threads in the web process (demo hosts), or a separate
+    # `python -m app.worker` process. Async ingestion returns immediately and processes the upload in a job.
+    embedded_worker: bool = True
+    worker_threads: int = 1
+    async_ingestion: bool = True
 
     # --- Auth -----------------------------------------------------------------
     jwt_secret: str = ""
+    # Key for the keyed hash of bank account numbers (app/finance/accounts.py). Empty: derived from JWT_SECRET.
+    # Set it explicitly and keep it stable in production; a new key gives the same account a new hash.
+    account_hash_key: str = ""
     jwt_algorithm: str = "HS256"
     jwt_expiration_hours: int = 24
 
@@ -61,6 +74,10 @@ class Settings(BaseSettings):
     chunk_overlap: int = 150
     retrieval_top_k: int = 8
     retrieval_candidates: int = 40
+    # Where hybrid search runs. auto: in PostgreSQL (pgvector exact scan + full-text search, migration 0007) when
+    # the vector column is present and every chunk of the tenant has a vector for the active model; otherwise the
+    # in-process index (BM25 + dense). memory: always in-process. postgres: as auto (falls back when not ready).
+    retrieval_backend: str = "auto"
     context_char_budget: int = 14000
 
     # --- Vision ---------------------------------------------------------------

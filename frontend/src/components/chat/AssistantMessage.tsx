@@ -128,6 +128,8 @@ const ISSUE_LABEL: Record<string, string> = {
   party: 'Party',
   roles: 'Roles',
   unsupported_content: 'Not in source',
+  flow: 'Money in/out',
+  arithmetic: 'Arithmetic',
   nli: 'NLI model',
 };
 
@@ -164,6 +166,15 @@ function ClaimList({ claims, onCitation }: { claims: ClaimCheck[]; onCitation: (
                         {ISSUE_LABEL[iss.kind] ?? iss.kind}:
                       </span>{' '}
                       {iss.detail}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {(c.derivations ?? []).length > 0 ? (
+                <ul className="mt-1 space-y-0.5" aria-label="Figures recomputed from the source">
+                  {(c.derivations ?? []).map((d, j) => (
+                    <li key={j} className="text-[11px] leading-snug text-muted">
+                      <span className="font-semibold">Recomputed:</span> {d}
                     </li>
                   ))}
                 </ul>

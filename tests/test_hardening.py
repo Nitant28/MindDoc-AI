@@ -54,6 +54,14 @@ def test_upload_rejects_oversized_pdf_with_400(client, alice, monkeypatch):
     assert r.status_code == 400 and "limit" in r.json()["detail"]
 
 
+def test_auth_rate_limit_returns_429(client, monkeypatch):
+    monkeypatch.setattr(security.auth_limiter, "limit", 2)
+    monkeypatch.setattr(security.auth_limiter, "hits", __import__("collections").defaultdict(__import__("collections").deque))
+    bad = {"email": "nobody-limit@example.com", "password": "wrong-password-1"}
+    codes = [client.post("/api/auth/login", json=bad).status_code for _ in range(3)]
+    assert codes[:2] == [401, 401] and codes[2] == 429
+
+
 def test_query_rate_limit_returns_429(client, monkeypatch):
     r = client.post("/api/auth/register", json={"email": "ratey@example.com", "password": "correct-horse-1"})
     h = {"Authorization": f"Bearer {r.json()['access_token']}"}
