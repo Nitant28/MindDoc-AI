@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { errorMessage, partiesApi } from '../api';
+import { Link, useNavigate } from 'react-router-dom';
+import { accountsApi, errorMessage, findingsApi, partiesApi } from '../api';
 import ForceGraph, { type ForceGraphHandle } from '../components/ForceGraph';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, CardBody, CardHeader } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
-import { Textarea } from '../components/ui/Field';
+import { Field, Input, Textarea } from '../components/ui/Field';
 import { Modal } from '../components/ui/Modal';
 import { Page, PageHeader } from '../components/ui/PageHeader';
 import { Segmented } from '../components/ui/Segmented';
@@ -42,10 +42,25 @@ function rowLink(documentId: number | null, seq: number | null): string | null {
   return documentId && seq ? `/documents/${documentId}?row=${seq}` : null;
 }
 
-function ClaimRow({ c, onNavigate }: { c: Pick<ClaimView, 'kind' | 'date' | 'amount_minor' | 'status'> & { document_id: number | null; seq: number | null; quote: string | null }; onNavigate?: () => void }) {
+function ClaimRow({
+  c,
+  onNavigate,
+  checked,
+  onToggle,
+}: {
+  c: Pick<ClaimView, 'kind' | 'date' | 'amount_minor' | 'status'> & { document_id: number | null; seq: number | null; quote: string | null };
+  onNavigate?: () => void;
+  checked?: boolean;
+  onToggle?: () => void;
+}) {
   const href = rowLink(c.document_id, c.seq);
   return (
     <tr>
+      {onToggle ? (
+        <td className="px-2 py-1.5">
+          <input type="checkbox" checked={!!checked} onChange={onToggle} aria-label="Use this claim as evidence for a finding" />
+        </td>
+      ) : null}
       <td className="whitespace-nowrap px-2 py-1.5 tabular-nums">{c.date ?? '—'}</td>
       <td className="whitespace-nowrap px-2 py-1.5">{c.kind === 'TRANSFERRED_TO' ? 'paid to' : 'received from'}</td>
       <td className="px-2 py-1.5 text-right tabular-nums">{formatMinor(c.amount_minor)}</td>
@@ -153,6 +168,10 @@ export default function Parties() {
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const graphRef = useRef<ForceGraphHandle>(null);
+  const navigate = useNavigate();
+  const [picked, setPicked] = useState<number[]>([]);
+  const [draft, setDraft] = useState<{ title: string; statement: string } | null>(null);
+  const [holderForm, setHolderForm] = useState<{ name: string; reason: string }>({ name: '', reason: '' });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -188,6 +207,7 @@ export default function Parties() {
 
   const openDetail = async (id: number) => {
     try {
+      setPicked([]);
       setDetail(await partiesApi.detail(id));
     } catch (e) {
       toast.error('Could not load party', errorMessage(e));
@@ -214,6 +234,36 @@ export default function Parties() {
     }
   };
 
+  const createFinding = async () => {
+    if (!draft) return;
+    setBusy(true);
+    try {
+      const f = await findingsApi.create(draft.title.trim(), draft.statement.trim(), picked.map((id) => ({ claim_id: id })));
+      setDraft(null);
+      setDetail(null);
+      toast.success('Finding saved as a draft', 'Review, propose and approve it on the Findings page.');
+      navigate(`/findings?id=${f.id}`);
+    } catch (e) {
+      toast.error('Could not save the finding', errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveHolder = async (accountId: number) => {
+    setBusy(true);
+    try {
+      await accountsApi.setHolder(accountId, holderForm.name.trim(), holderForm.reason.trim());
+      setHolderForm({ name: '', reason: '' });
+      toast.success('Holder saved', 'Run resolution to update the holder party.');
+      await load();
+    } catch (e) {
+      toast.error('Could not save the holder', errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const graphData = useMemo(() => {
     if (!graph) return { nodes: [] as GraphNode[], edges: [] as GraphEdge[] };
     const deg = new Map<string, number>();
@@ -227,13 +277,15 @@ export default function Parties() {
       label: n.label,
       type: n.type === 'account' ? 'MONEY' : n.kind === 'person' ? 'PERSON' : 'ORG',
       weight: Math.max(1, Math.log10(1 + (deg.get(n.id) ?? 0) / 100)),
-      documents: n.document_id ? [n.document_id] : [],
+      documents: n.document_ids ?? (n.document_id ? [n.document_id] : []),
     }));
     const edges: GraphEdge[] = graph.edges.map((e) => ({
       source: e.source,
       target: e.target,
-      relation: e.out_minor && e.in_minor ? 'paid and received' : e.out_minor ? 'paid' : 'received',
-      weight: Math.max(1, Math.log10(1 + (e.out_minor + e.in_minor) / 100)),
+      relation:
+        e.kind === 'holds' ? 'holds the account' : e.out_minor && e.in_minor ? 'paid and received' : e.out_minor ? 'paid' : 'received',
+      weight: e.kind === 'holds' ? 1 : Math.max(1, Math.log10(1 + (e.out_minor + e.in_minor) / 100)),
+      weak: e.kind === 'holds',
     }));
     return { nodes, edges };
   }, [graph]);
@@ -403,15 +455,81 @@ export default function Parties() {
               />
             </Card>
             <Card>
-              <CardHeader icon="layers" title={selectedNode ? selectedNode.label : 'Select a node'} description="Each edge lists the transactions behind it." />
+              <CardHeader
+                icon="layers"
+                title={selectedNode ? selectedNode.label : 'Select a node'}
+                description="Money edges list their transactions; a dashed edge links an account to its holder."
+              />
               <CardBody className="space-y-3 text-xs">
                 {selectedNode?.party_id ? (
                   <Button size="xs" onClick={() => void openDetail(selectedNode.party_id as number)}>
                     Open party
                   </Button>
                 ) : null}
+                {selectedNode?.type === 'account' ? (
+                  <div className="space-y-2 rounded-lg border border-line p-2">
+                    <p className="text-muted">
+                      Holder: <span className="text-fg">{selectedNode.holder ?? 'not known'}</span>
+                    </p>
+                    {selectedNode.bank_account_id ? (
+                      <form
+                        className="space-y-1.5"
+                        onSubmit={(ev) => {
+                          ev.preventDefault();
+                          void saveHolder(selectedNode.bank_account_id as number);
+                        }}
+                      >
+                        <Field label="Set the holder" htmlFor="holder-name">
+                          <Input
+                            id="holder-name"
+                            value={holderForm.name}
+                            placeholder="Name as on the account"
+                            onChange={(ev) => setHolderForm((f) => ({ ...f, name: ev.target.value }))}
+                          />
+                        </Field>
+                        <Field label="Source or reason" htmlFor="holder-reason">
+                          <Input
+                            id="holder-reason"
+                            value={holderForm.reason}
+                            placeholder="e.g. account opening form"
+                            onChange={(ev) => setHolderForm((f) => ({ ...f, reason: ev.target.value }))}
+                          />
+                        </Field>
+                        <Button
+                          size="xs"
+                          type="submit"
+                          loading={busy}
+                          disabled={holderForm.name.trim().length < 2 || holderForm.reason.trim().length < 3}
+                        >
+                          Save holder
+                        </Button>
+                      </form>
+                    ) : null}
+                  </div>
+                ) : null}
                 {selectedEdges.map((e) => {
                   const other = graph.nodes.find((n) => n.id === (e.source === selected ? e.target : e.source));
+                  if (e.kind === 'holds') {
+                    return (
+                      <div key={`${e.source}-${e.target}-holds`} className="rounded-lg border border-dashed border-line p-2">
+                        <div className="font-medium text-fg">{other?.label}</div>
+                        <div className="text-muted">{e.source === selected ? 'holds this account' : 'holds this account'}</div>
+                        <ul className="mt-1 space-y-0.5">
+                          {(e.evidence ?? []).map((ev, i) => (
+                            <li key={i} className="text-muted">
+                              {ev.source === 'analyst' ? (
+                                <>Set by an analyst{ev.set_at ? ` on ${new Date(ev.set_at).toLocaleDateString()}` : ''}</>
+                              ) : ev.document_id ? (
+                                <Link className="text-accent underline" to={`/documents/${ev.document_id}`}>
+                                  statement header, page {ev.page ?? 1}
+                                </Link>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={`${e.source}-${e.target}`} className="rounded-lg border border-line p-2">
                       <div className="font-medium text-fg">{other?.label}</div>
@@ -456,6 +574,12 @@ export default function Parties() {
         {detail ? (
           <div className="space-y-4 p-4 text-xs sm:p-5">
             <Identifiers ids={detail.identifiers} />
+            {detail.accounts?.length ? (
+              <p className="text-muted">
+                Holds account{detail.accounts.length > 1 ? 's' : ''}:{' '}
+                {detail.accounts.map((a) => `${a.masked}${a.ifsc ? ` (${a.ifsc})` : ''}`).join(' · ')}
+              </p>
+            ) : null}
             {detail.names.length > 1 ? <p className="text-muted">Printed as: {detail.names.join(' · ')}</p> : null}
             <div>
               <h3 className="mb-1.5 font-semibold uppercase tracking-wider text-subtle">Why these records are one party</h3>
@@ -508,7 +632,19 @@ export default function Parties() {
               </ul>
             </div>
             <div>
-              <h3 className="mb-1.5 font-semibold uppercase tracking-wider text-subtle">Transfer claims</h3>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <h3 className="font-semibold uppercase tracking-wider text-subtle">Transfer claims</h3>
+                {detail.claims.length ? (
+                  <Button
+                    size="xs"
+                    icon="bookmark"
+                    disabled={picked.length === 0}
+                    onClick={() => setDraft({ title: '', statement: '' })}
+                  >
+                    {picked.length ? `Create finding from ${picked.length}` : 'Select claims for a finding'}
+                  </Button>
+                ) : null}
+              </div>
               {detail.claims.length === 0 ? <p className="text-muted">No transfers.</p> : null}
               {detail.claims.length ? (
                 <div className="max-h-72 overflow-auto rounded-lg border border-line">
@@ -519,6 +655,8 @@ export default function Parties() {
                           key={c.id}
                           c={{ ...c, document_id: c.evidence[0]?.document_id ?? null, seq: c.evidence[0]?.seq ?? null, quote: c.evidence[0]?.quote ?? null }}
                           onNavigate={() => setDetail(null)}
+                          checked={picked.includes(c.id)}
+                          onToggle={() => setPicked((ids) => (ids.includes(c.id) ? ids.filter((i) => i !== c.id) : [...ids, c.id]))}
                         />
                       ))}
                     </tbody>
@@ -545,6 +683,45 @@ export default function Parties() {
                 </ul>
               </div>
             ) : null}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={!!draft}
+        onClose={() => (busy ? undefined : setDraft(null))}
+        title="New finding"
+        description={`A draft supported by ${picked.length} claim${picked.length === 1 ? '' : 's'}. Findings are your statements; MindDoc does not label fraud.`}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              loading={busy}
+              disabled={!draft || draft.title.trim().length < 3 || draft.statement.trim().length < 10}
+              onClick={() => void createFinding()}
+            >
+              Save draft
+            </Button>
+          </div>
+        }
+      >
+        {draft ? (
+          <div className="space-y-3 p-4 sm:p-5">
+            <Field label="Title" htmlFor="finding-title">
+              <Input id="finding-title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+            </Field>
+            <Field label="Statement" htmlFor="finding-statement" hint="State what the selected transactions show, in plain words.">
+              <Textarea
+                id="finding-statement"
+                rows={4}
+                value={draft.statement}
+                onChange={(e) => setDraft({ ...draft, statement: e.target.value })}
+              />
+            </Field>
           </div>
         ) : null}
       </Modal>

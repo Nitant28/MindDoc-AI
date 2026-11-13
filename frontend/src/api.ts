@@ -37,6 +37,12 @@ import type {
   PartyReviewItem,
   PartySummary,
   ResolveResult,
+  BankAccountView,
+  FindingStatus,
+  FindingSummary,
+  FindingView,
+  ReportSummary,
+  ReportView,
 } from './types';
 
 const envUrl = import.meta.env.VITE_API_URL?.trim();
@@ -376,4 +382,30 @@ export const partiesApi = {
   unmerge: (eventId: number, reason: string) =>
     api.post<{ event_id: number; still_connected: boolean }>('/parties/unmerge', { event_id: eventId, reason }).then((r) => r.data),
   graph: () => api.get<FlowGraph>('/parties/graph').then((r) => r.data),
+};
+
+/** Bank accounts, findings and frozen reports (R5, design F §4). */
+export const accountsApi = {
+  list: () => api.get<{ accounts: BankAccountView[] }>('/accounts').then((r) => r.data.accounts),
+  setHolder: (id: number, name: string, reason: string) =>
+    api.put<{ id: number; holder: string; holder_source: string }>(`/accounts/${id}/holder`, { name, reason }).then((r) => r.data),
+};
+
+export const findingsApi = {
+  list: () => api.get<{ findings: FindingSummary[] }>('/findings').then((r) => r.data.findings),
+  get: (id: number) => api.get<FindingView>(`/findings/${id}`).then((r) => r.data),
+  create: (title: string, statement: string, support: Array<{ claim_id: number; role?: string }>) =>
+    api.post<FindingView>('/findings', { title, statement, support }).then((r) => r.data),
+  revise: (id: number, body: { title?: string; statement?: string; status?: FindingStatus; note?: string }) =>
+    api.post<FindingView>(`/findings/${id}/revise`, body).then((r) => r.data),
+  refresh: (id: number) => api.post<FindingView>(`/findings/${id}/refresh`).then((r) => r.data),
+};
+
+export const reportsApi = {
+  list: () => api.get<{ reports: ReportSummary[] }>('/reports').then((r) => r.data.reports),
+  get: (id: number) => api.get<ReportView>(`/reports/${id}`).then((r) => r.data),
+  issue: (title: string, findingIds: number[]) =>
+    api.post<ReportView>('/reports', { title, finding_ids: findingIds }).then((r) => r.data),
+  /** The frozen snapshot exactly as hashed. */
+  export: (id: number) => api.get<Blob>(`/reports/${id}/export`, { responseType: 'blob' }).then((r) => r.data),
 };

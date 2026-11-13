@@ -22,3 +22,9 @@ igraph (fast but GPL).
 Source: `docs/review/C_ADR_REVIEW.md`.
 - Co-occurrence moves to a `co_mention` table and is shown as a weak signal, never as a relationship.
 - graspologic stays in the optional ML profile; community detection runs on case-scoped graphs only.
+
+## Implementation note 2026-11-13 (R5)
+
+Built: migration 0008 moves `co_occurs` rows out of `relations` into `co_mentions`. Ingestion writes co-occurrence
+only there. The knowledge graph shows it as dashed "named together" edges, counted separately from relations.
+GraphRAG-lite may still use co-mentions as retrieval neighbours, after typed relations.

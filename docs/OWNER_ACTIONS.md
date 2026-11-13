@@ -45,3 +45,7 @@ Either:
 - Merging `consolidate/v2-base` into `main` (which deploys to Render).
 - Any production database migration, credential, billing, DNS or visibility change.
 - The market decision at M1 and the forensic-detector validation gate M2.
+- **Account Aggregator holder data (privacy decision, open).** The AA import does not read the holder profile (name,
+  PAN, mobile, …). Reading only the holder name and PAN would let AA statements link to parties automatically, as PDF
+  headers do. Until you decide, an analyst can set the holder by hand.
+- **`ACCOUNT_HASH_KEY`** must be set (and kept) on any persistent deployment before bank statements are uploaded.

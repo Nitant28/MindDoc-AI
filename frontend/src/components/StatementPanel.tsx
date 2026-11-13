@@ -209,6 +209,9 @@ export default function StatementPanel({
               {data.pages ? ` · ${data.pages} page${data.pages === 1 ? '' : 's'}` : ''}
               {data.header?.ifsc ? ` · IFSC ${data.header.ifsc}` : ''}
               {data.header?.account ? ` · A/c ${data.header.account}` : ''}
+              {data.header?.holder
+                ? ` · holder ${data.header.holder}${data.header.holder_source === 'analyst' ? ' (set by an analyst)' : ''}`
+                : ''}
               {data.period?.start && data.period.end ? ` · ${data.period.start} to ${data.period.end}` : ''}
               {s.inferred_directions
                 ? ` · ${s.inferred_directions} direction${s.inferred_directions === 1 ? '' : 's'} inferred from balances`

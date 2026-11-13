@@ -237,11 +237,25 @@ held-out test set.
 - Entity types: PERSON, ORG, LOCATION, DATE, MONEY, EMAIL, URL, PRODUCT, LAW, CONCEPT, OTHER.
 - Extraction uses regex for EMAIL, URL, MONEY, DATE and LAW, heuristic named-entity recognition for ORG, PERSON and
   LOCATION, and, when an LLM is configured, **GraphRAG-style JSON extraction** of entities and typed relations.
-- Entities are merged by normalised name, mentions are stored per chunk, and relations are weighted.
+- Entities are merged by normalised name and mentions are stored per chunk.
+- `relations` holds only typed relations (from the LLM). Names in the same passage are **co-mentions**
+  (`co_mentions`, ADR-0005 amendment): shown as dashed "named together" edges, never as a relationship.
 - **Timeline:** every dated fact is listed with its context, including upcoming deadlines.
 
 **Structured extraction** (`extraction.py`). The user defines fields such as `{"effective_date": "start date"}`.
 Passages are retrieved per field, and an LLM fills a JSON object, with `null` where the value isn't found.
+
+### 4.3a Accounts, findings and frozen reports (R5) — `app/finance/accounts.py`, `app/findings/service.py`
+
+- **Bank accounts.** One per IFSC + keyed hash of the number; only the last four digits are stored.
+- **Holders.** Read from a labelled statement header, or set by an analyst. Account Aggregator profile data is not
+  read. The holder becomes a party with the account as identifier, so a statement's owner links to the same company
+  paid by other statements. The flow graph draws a dashed "holds" edge with its evidence.
+- **Findings.** Analyst statements pinned to claim versions, with every change a new version. Lineage reaches the
+  highlighted statement row in two clicks. "Refresh" moves a finding to the current claims and back to draft.
+- **Reports.** Approved findings frozen as canonical JSON with a SHA-256 hash, re-checked on read. They flag new
+  evidence since issue, and the application cannot edit them. MindDoc never writes or approves findings and never
+  labels fraud.
 
 ### 4.4 Responsible AI and security — `app/ai/guardrails.py`, `app/core/security.py`, `app/api/deps.py`
 

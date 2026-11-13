@@ -19,6 +19,7 @@ const Vision = lazy(() => import('./pages/Vision'));
 const System = lazy(() => import('./pages/System'));
 const Timeline = lazy(() => import('./pages/Timeline'));
 const Parties = lazy(() => import('./pages/Parties'));
+const Findings = lazy(() => import('./pages/Findings'));
 
 /** Protected shell: no token → /login (remembering where the user was going). */
 function RequireAuth() {
@@ -69,6 +70,7 @@ export default function App() {
                 <Route path="/graph" element={<GraphPage />} />
                 <Route path="/timeline" element={<Timeline />} />
                 <Route path="/parties" element={<Parties />} />
+                <Route path="/findings" element={<Findings />} />
                 <Route path="/vision" element={<Vision />} />
                 <Route path="/system" element={<System />} />
                 <Route path="/settings" element={<Settings />} />

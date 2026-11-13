@@ -317,6 +317,8 @@ export interface GraphEdge {
   target: string;
   relation: string;
   weight: number;
+  /** A weak signal (named in the same passage, or an account holder link), drawn dashed; never a relationship. */
+  weak?: boolean;
 }
 
 export interface GraphData {
@@ -522,7 +524,13 @@ export interface StatementAnalysis {
   source?: { type: 'pdf_text' | 'aa_deposit' | string; consent_ref: string | null; payload_sha256: string | null; schema_version: string | null };
   status?: 'reconciled' | 'reconciled_with_flags' | 'needs_review' | 'not_checkable' | string;
   currency?: string;
-  header?: { ifsc?: string | null; account?: string | null };
+  header?: {
+    ifsc?: string | null;
+    account?: string | null;
+    bank_account_id?: number | null;
+    holder?: string | null;
+    holder_source?: 'statement_header' | 'analyst' | string | null;
+  };
   pages?: number;
   warnings?: string[];
   summary?: {
@@ -566,6 +574,8 @@ export interface PartySummary {
   debit_minor: number;
   credit_minor: number;
   documents: number[];
+  /** Bank accounts this party holds (statement header or analyst). */
+  accounts?: Array<{ id: number; masked: string; ifsc: string | null }>;
 }
 
 export interface IdentityEventView {
@@ -648,10 +658,24 @@ export interface ResolveResult {
 
 export interface FlowGraph {
   case_id: number;
-  nodes: Array<{ id: string; type: 'account' | 'party'; label: string; kind?: string; party_id?: number; document_id?: number }>;
+  nodes: Array<{
+    id: string;
+    type: 'account' | 'party';
+    label: string;
+    kind?: string;
+    party_id?: number;
+    document_id?: number;
+    document_ids?: number[];
+    bank_account_id?: number | null;
+    holder?: string | null;
+    holds?: string[];
+  }>;
   edges: Array<{
     source: string;
     target: string;
+    /** flow: money between an account and a party; holds: a party holds the account. */
+    kind: 'flow' | 'holds';
+    evidence?: Array<{ source: string; document_id?: number; page?: number; set_by?: number | null; set_at?: string | null }>;
     out_minor: number;
     in_minor: number;
     transactions: number[];
@@ -667,4 +691,101 @@ export interface FlowGraph {
       quote: string | null;
     }>;
   }>;
+}
+
+// ------------------------------------------------------------------ R5: accounts, findings, frozen reports
+
+export interface BankAccountView {
+  id: number;
+  account_masked: string;
+  ifsc: string | null;
+  account_type: string | null;
+  hash_basis: 'full' | 'masked' | string;
+  holder: string | null;
+  holder_source: 'statement_header' | 'analyst' | string | null;
+  holder_set_at: string | null;
+  documents: number[];
+}
+
+export type FindingStatus = 'draft' | 'proposed' | 'approved' | 'rejected';
+
+export interface FindingSupportView {
+  role: 'supports' | 'contradicts' | 'context';
+  claim: {
+    id: number;
+    claim_key: string;
+    kind: string;
+    subject: string | null;
+    party: string | null;
+    amount_minor: number;
+    currency: string;
+    date: string | null;
+    status: string;
+    method: string;
+    recorded_at: string;
+  };
+  evidence: Array<{
+    document_id: number | null;
+    filename: string | null;
+    source_sha256: string | null;
+    page: number | null;
+    seq: number | null;
+    box: number[] | null;
+    quote: string | null;
+    external_id: string | null;
+  }>;
+  changed_since?: { superseded_at: string; reason: string | null; current_claim_id: number | null } | null;
+}
+
+export interface FindingView {
+  id: number;
+  finding_key: string;
+  version: number;
+  title: string;
+  statement: string;
+  status: FindingStatus;
+  method: string;
+  evidence_snapshot_at: string;
+  created_at: string;
+  created_by: number | null;
+  change_note: string | null;
+  supersedes_id: number | null;
+  superseded_at?: string | null;
+  stale?: boolean;
+  support: FindingSupportView[];
+  history?: Array<{ id: number; version: number; status: FindingStatus; change_note: string | null; created_at: string; superseded_at: string | null }>;
+}
+
+export interface FindingSummary {
+  id: number;
+  finding_key: string;
+  version: number;
+  title: string;
+  status: FindingStatus;
+  stale: boolean;
+  created_at: string;
+  claims: number;
+}
+
+export interface ReportSummary {
+  id: number;
+  title: string;
+  frozen_at: string;
+  content_hash: string;
+  findings: number;
+}
+
+export interface ReportView {
+  id: number;
+  title: string;
+  frozen_at: string;
+  content_hash: string;
+  intact: boolean;
+  finding_ids: number[];
+  new_evidence_since_report: Array<{ finding_id: number; title: string; claims_changed: boolean; newer_version_id: number | null }>;
+  snapshot: {
+    report: { title: string; case: { id: number; title: string | null }; frozen_at: string; issued_by: string | null };
+    findings: FindingView[];
+    notice: string;
+  };
 }

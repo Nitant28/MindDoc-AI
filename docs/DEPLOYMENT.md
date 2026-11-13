@@ -48,6 +48,7 @@ SQLite remains supported as a **single-user development fallback**: no row-level
 | `ASYNC_INGESTION` | `true` | uploads are queued (HTTP 202); `?wait=true` processes inside the request |
 | `RETRIEVAL_BACKEND` | `auto` | `auto`: hybrid search inside PostgreSQL (needs the `vector` extension, migration 0007, and a 384-d embedding model) when every chunk of the tenant has a vector, else in process; `memory`: always in process (rollback switch) |
 | `JWT_SECRET`, `CORS_ORIGINS`, provider keys | — | see `docs/MANUAL.md` §4 |
+| `ACCOUNT_HASH_KEY` | derived from `JWT_SECRET` | key for the keyed hash of bank account numbers (only the masked number is stored). Set it explicitly and keep it stable: a new key gives the same account a new hash until statements are re-analysed |
 
 ## 3. Database migrations
 
