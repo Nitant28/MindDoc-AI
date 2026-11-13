@@ -11,7 +11,7 @@ from app.ai import knowledge, llm
 from app.api.deps import enforce_rate, get_current_user
 from app.core.security import eval_limiter
 from app.core.config import settings
-from app.database.models import Document, Entity, QueryLog, Relation, get_db
+from app.database.models import CoMention, Document, Entity, QueryLog, Relation, get_db
 from app.ml import embeddings as emb
 from app.ml import evaluation, insights
 from app.ml.retrieval import get_index
@@ -50,7 +50,9 @@ def overview(db: Session = Depends(get_db), user=Depends(get_current_user)):
     return {
         "documents": len(docs), "chunks": index.size, "retrieval_backend": index.backend,
         "entities": db.query(func.count(Entity.id)).filter(Entity.tenant_id == tid).scalar() or 0,
-        "relations": db.query(func.count(Relation.id)).filter(Relation.tenant_id == tid).scalar() or 0,
+        "relations": db.query(func.count(Relation.id)).filter(Relation.tenant_id == tid,
+                                                              Relation.relation != "co_occurs").scalar() or 0,
+        "co_mentions": db.query(func.count(CoMention.id)).filter(CoMention.tenant_id == tid).scalar() or 0,
         "queries": int(agg[0] or 0), "avg_latency_ms": int(agg[1] or 0),
         "avg_confidence": round(float(agg[2]), 3) if agg[2] is not None else None,
         "pii_total": sum((d.pii or {}).get("count", 0) for d in docs),

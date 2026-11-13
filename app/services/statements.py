@@ -15,6 +15,7 @@ from typing import Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.finance.accounts import account_hash, account_key, mask_account
 from app.database.models import Document, ReconciliationCheck, Statement, StatementTxn
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,26 @@ def _iso(d: Optional[str]) -> Optional[date]:
 AA_EXT = (".json", ".xml")
 
 
+def _bank_account(db: Session, doc: Document, header: dict, currency: str) -> Optional[int]:
+    """Find or create the tenant's bank account for this statement (masked number + keyed hash, design F §7)."""
+    from app.database.models import BankAccount
+    digest, basis = account_hash(header.get("account"))
+    if not digest:
+        return None
+    key = account_key(header.get("ifsc"), digest)
+    acct = db.query(BankAccount).filter(BankAccount.tenant_id == doc.tenant_id, BankAccount.account_key == key).first()
+    if acct is None:
+        acct = BankAccount(tenant_id=doc.tenant_id, account_key=key, ifsc=header.get("ifsc"),
+                           account_masked=mask_account(header.get("account")), account_hash=digest, hash_basis=basis,
+                           account_type=header.get("account_type"), currency=currency or "INR",
+                           first_document_id=doc.id, created_at=datetime.utcnow())
+        db.add(acct)
+    if header.get("holder") and acct.holder_source != "analyst":  # an analyst's holder is never overwritten
+        acct.holder_name, acct.holder_source = header["holder"][:200], "statement_header"
+    db.flush()
+    return acct.id
+
+
 def analyse(db: Session, doc: Document, source_ref: Optional[str] = None) -> Statement:
     """Run the engine on the stored original and replace the stored result. Raises FileNotFoundError / ValueError
     (including `AAError` for an invalid Account Aggregator payload). PDFs use the layout engine; `.json` / `.xml`
@@ -84,7 +105,8 @@ def analyse(db: Session, doc: Document, source_ref: Optional[str] = None) -> Sta
         tenant_id=doc.tenant_id, document_id=doc.id, engine_version=engine_version(),
         status=res.status if rows else NOT_A_STATEMENT, currency=currency, source=source, source_ref=source_ref,
         payload_sha256=hashlib.sha256(data).hexdigest(), schema_version=schema_version,
-        ifsc=(res.header or {}).get("ifsc"), account_masked=(res.header or {}).get("account"),
+        ifsc=(res.header or {}).get("ifsc"), account_masked=mask_account((res.header or {}).get("account")),
+        bank_account_id=_bank_account(db, doc, res.header or {}, currency),
         opening_minor=res.opening if rows else None, closing_minor=res.closing if rows else None,
         period_start=_iso(rows[0].date) if rows else None, period_end=_iso(rows[-1].date) if rows else None,
         pages=res.pages, n_txns=len(rows),
@@ -153,6 +175,14 @@ def import_aa(db: Session, data: bytes, filename: str, tenant_id: int, owner_id:
     return doc, True
 
 
+def _account_view(db: Session, stmt: Statement) -> dict:
+    from app.database.models import BankAccount
+    acct = db.get(BankAccount, stmt.bank_account_id) if stmt.bank_account_id else None
+    if acct is None:
+        return {"bank_account_id": None, "holder": None, "holder_source": None}
+    return {"bank_account_id": acct.id, "holder": acct.holder_name, "holder_source": acct.holder_source}
+
+
 def payload(db: Session, stmt: Statement) -> dict:
     base = {"document_id": stmt.document_id, "engine_version": stmt.engine_version,
             "analysed_at": stmt.created_at, "warnings": json.loads(stmt.warnings or "[]"),
@@ -165,7 +195,7 @@ def payload(db: Session, stmt: Statement) -> dict:
               .order_by(ReconciliationCheck.id).all())
     return {
         **base, "is_statement": True, "status": stmt.status, "currency": stmt.currency,
-        "header": {"ifsc": stmt.ifsc, "account": stmt.account_masked}, "pages": stmt.pages,
+        "header": {"ifsc": stmt.ifsc, "account": stmt.account_masked, **_account_view(db, stmt)}, "pages": stmt.pages,
         "period": {"start": stmt.period_start, "end": stmt.period_end},
         "summary": {"opening_minor": stmt.opening_minor, "closing_minor": stmt.closing_minor,
                     "transactions": stmt.n_txns, "total_debit_minor": stmt.total_debit_minor,

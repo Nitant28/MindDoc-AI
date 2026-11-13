@@ -188,7 +188,8 @@ def test_resolution_review_unmerge_and_graph_via_api(client, tmp_path):
 
     g = client.get("/api/parties/graph", headers=h).json()
     assert any(n["type"] == "account" for n in g["nodes"]) and g["edges"]
-    assert all(e["transactions"] for e in g["edges"])  # every edge carries its transactions (evidence)
+    # every edge opens its evidence: money edges their transactions, holder edges the statement header or the analyst
+    assert all(e["transactions"] if e["kind"] == "flow" else e["evidence"] for e in g["edges"])
     # tenant isolation
     assert client.get("/api/parties", headers=other).json()["parties"] == []
     assert client.get(f"/api/parties/{parties[0]['party_id']}", headers=other).status_code == 404
@@ -273,8 +274,9 @@ def test_claims_versioning_as_of_and_graph_evidence(client, tmp_path):
                for c in old)
 
     g = client.get("/api/parties/graph", headers=h).json()
-    assert g["edges"] and all(e["claims"] and all(c["seq"] and c["document_id"] == doc for c in e["claims"])
-                              for e in g["edges"])
+    flows = [e for e in g["edges"] if e["kind"] == "flow"]
+    assert flows and all(e["claims"] and all(c["seq"] and c["document_id"] == doc for c in e["claims"])
+                         for e in flows)
 
     # deleting the source closes its claims (history kept)
     assert client.delete(f"/api/documents/delete/{doc}", headers=h).status_code == 200

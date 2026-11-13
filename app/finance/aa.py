@@ -12,7 +12,7 @@ currentBalance, transactionTimestamp, valueDate, txnId, narration, reference), a
 
 The schema types `amount` as an XSD floating-point number; it is read from its decimal text (JSON numbers via
 `Decimal`) and never converted to binary floating point (ADR-0010). Holder profile data (name, PAN, mobile, …) is not
-read.
+read (an owner decision is open, docs/OWNER_ACTIONS.md §6); an analyst can set an account's holder by hand.
 """
 from __future__ import annotations
 

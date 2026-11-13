@@ -26,7 +26,7 @@ _TEXT_ROLES = ("date", "value_date", "narration", "ref", "drcr")
 _MONEY = re.compile(r"^\(?-?(?:₹|rs\.?|inr)?\d{1,3}(?:,\d{2,3})*(?:\.\d{2})\)?-?$|^\(?-?\d+\.\d{2}\)?-?$", re.I)
 _SUFFIX = re.compile(r"^\(?(cr|dr)\.?\)?$", re.I)
 # Bump when extraction or reconciliation output changes: stored analyses from older versions are recomputed.
-ENGINE_VERSION = "r4.0"
+ENGINE_VERSION = "r5.0"  # r5.0: masked account numbers, bank-account link, header holder name
 
 _DATE_FORMATS = ["%d/%m/%y", "%d/%m/%Y", "%d-%m-%Y", "%d-%m-%y", "%d %b %Y", "%d %b %y", "%d-%b-%y", "%d-%b-%Y",
                  "%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d", "%d %B %Y"]
@@ -409,6 +409,8 @@ def extract_statement(data: bytes) -> StatementResult:
     for key in ("ifsc", "account"):
         m = _HEADER_PATTERNS[key].search(texts[0] if texts else "")
         header[key] = m.group(1) if m else None
+    from app.finance.accounts import extract_holder
+    header["holder"] = extract_holder(texts[0] if texts else "")
     return StatementResult(rows=rows, status=status, checks=checks, opening=opening_used, closing=closing,
                            header=header, row_boxes=boxes, pages=len(pages), warnings=warnings,
                            ocr_pages=sorted(ocr_pages))

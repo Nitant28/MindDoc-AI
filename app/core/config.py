@@ -34,6 +34,9 @@ class Settings(BaseSettings):
 
     # --- Auth -----------------------------------------------------------------
     jwt_secret: str = ""
+    # Key for the keyed hash of bank account numbers (app/finance/accounts.py). Empty: derived from JWT_SECRET.
+    # Set it explicitly and keep it stable in production; a new key gives the same account a new hash.
+    account_hash_key: str = ""
     jwt_algorithm: str = "HS256"
     jwt_expiration_hours: int = 24
 

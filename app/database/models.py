@@ -311,7 +311,8 @@ class Statement(Base):
     status = Column(String, nullable=False)  # reconciled | reconciled_with_flags | needs_review | not_checkable | not_a_statement
     currency = Column(String(3), nullable=False, default="INR")
     ifsc = Column(String)
-    account_masked = Column(String)
+    account_masked = Column(String)        # last four digits only (design F §7)
+    bank_account_id = Column(Integer, ForeignKey("bank_accounts.id", ondelete="SET NULL"), index=True)
     opening_minor = Column(BigInteger)
     closing_minor = Column(BigInteger)
     period_start = Column(Date)
@@ -501,6 +502,100 @@ class ClaimEvidence(Base):
     box_bottom = Column(Integer)
     quote = Column(Text)                                     # the narration as read
     external_id = Column(String)                             # e.g. AA txnId
+
+# ---------------------------------------------------------------- Bank accounts (R5, design F §2.3, §7)
+
+class BankAccount(Base):
+    """A bank account seen in the tenant's statements. The number is kept masked plus a keyed hash (matching without
+    storing it); the holder name comes from a labelled statement header or from an analyst."""
+    __tablename__ = "bank_accounts"
+    __table_args__ = (UniqueConstraint("tenant_id", "account_key", name="uq_bank_account_key"),)
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    account_key = Column(String, nullable=False)             # "<IFSC or ->:<hash>"
+    ifsc = Column(String)
+    account_masked = Column(String, nullable=False)
+    account_hash = Column(String(64), nullable=False)
+    hash_basis = Column(String, nullable=False)              # full | masked
+    account_type = Column(String)
+    currency = Column(String(3), nullable=False, default="INR")
+    holder_name = Column(String)
+    holder_source = Column(String)                           # statement_header | analyst
+    holder_set_by = Column(Integer, ForeignKey("users.id"))
+    holder_set_at = Column(DateTime)
+    first_document_id = Column(Integer, ForeignKey("documents.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ---------------------------------------------------------------- Co-mentions (ADR-0005 amendment)
+
+class CoMention(Base):
+    """Two entities named in the same passage: a weak signal for search and display, never a relationship."""
+    __tablename__ = "co_mentions"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), index=True, nullable=False)
+    a_entity_id = Column(Integer, ForeignKey("entities.id", ondelete="CASCADE"), index=True, nullable=False)
+    b_entity_id = Column(Integer, ForeignKey("entities.id", ondelete="CASCADE"), index=True, nullable=False)
+    chunks = Column(Integer, nullable=False, default=1)      # passages naming both
+
+
+# ---------------------------------------------------------------- Findings and frozen reports (design F §4)
+
+class Finding(Base):
+    """An analyst's statement about the case, supported by specific *claim versions*. Versioned like claims: a
+    change (wording, status, refreshed evidence) closes the current version and inserts its successor, so an old
+    version still resolves to exactly the claims and regions it relied on. MindDoc never writes findings itself."""
+    __tablename__ = "findings"
+    __table_args__ = (Index("uq_findings_current_version", "case_id", "finding_key", unique=True,
+                            sqlite_where=text("superseded_at IS NULL"), postgresql_where=text("superseded_at IS NULL")),)
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False)
+    finding_key = Column(String, nullable=False, index=True)
+    version = Column(Integer, nullable=False, default=1)
+    title = Column(String, nullable=False)
+    statement = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="draft")  # draft | proposed | approved | rejected
+    method = Column(String, nullable=False, default="analyst")
+    evidence_snapshot_at = Column(DateTime, nullable=False)
+    supersedes_id = Column(Integer, ForeignKey("findings.id"))
+    change_note = Column(String)                              # why this version exists
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    superseded_at = Column(DateTime, index=True)
+
+
+class FindingSupport(Base):
+    __tablename__ = "finding_support"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    finding_id = Column(Integer, ForeignKey("findings.id", ondelete="CASCADE"), index=True, nullable=False)
+    claim_id = Column(Integer, ForeignKey("claims.id"), index=True, nullable=False)   # a claim *version*
+    role = Column(String, nullable=False, default="supports")  # supports | contradicts | context
+
+
+class Report(Base):
+    """A frozen report: pinned finding versions and a complete snapshot of what they relied on, with its SHA-256.
+    Immutable once issued (the application role cannot update or delete it on PostgreSQL)."""
+    __tablename__ = "reports"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False)
+    title = Column(String, nullable=False)
+    frozen_at = Column(DateTime, nullable=False)
+    content_hash = Column(String(64), nullable=False)
+    snapshot = Column(Text, nullable=False)                   # canonical JSON
+    issued_by = Column(Integer, ForeignKey("users.id"))
+
+
+class ReportFinding(Base):
+    __tablename__ = "report_findings"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    report_id = Column(Integer, ForeignKey("reports.id", ondelete="CASCADE"), index=True, nullable=False)
+    finding_id = Column(Integer, ForeignKey("findings.id"), index=True, nullable=False)  # a finding *version*
+
 
 def _auto_migrate():
     """Add columns introduced after a table was created (SQLite has no create_all upgrades)."""
