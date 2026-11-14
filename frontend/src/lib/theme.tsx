@@ -14,7 +14,13 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function initialTheme(): Theme {
-  return storage.get(THEME_KEY) === 'light' ? 'light' : 'dark';
+  const stored = storage.get(THEME_KEY);
+  if (stored === 'light' || stored === 'dark') return stored;
+  try {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -25,7 +31,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.classList.toggle('dark', theme === 'dark');
     root.style.colorScheme = theme;
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme === 'dark' ? '#09090b' : '#fafafa');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#131314' : '#f8fafd');
     storage.set(THEME_KEY, theme);
   }, [theme]);
 

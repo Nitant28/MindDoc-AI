@@ -8,13 +8,13 @@ import {
 import { cx } from '../../lib/cx';
 
 export const inputClass =
-  'block w-full rounded-lg border border-line bg-surface px-3 text-sm text-fg shadow-sm placeholder:text-subtle transition-colors hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25 disabled:cursor-not-allowed disabled:opacity-60';
+  'block w-full rounded-xl border border-line-strong bg-surface px-3.5 text-sm text-fg placeholder:text-subtle transition-[border-color,box-shadow] hover:border-fg/40 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-60';
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
   { className, ...rest },
   ref,
 ) {
-  return <input ref={ref} className={cx(inputClass, 'h-9', className)} {...rest} />;
+  return <input ref={ref} className={cx(inputClass, 'h-10', className)} {...rest} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea(
@@ -29,7 +29,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   ref,
 ) {
   return (
-    <select ref={ref} className={cx(inputClass, 'h-9 pr-8', className)} {...rest}>
+    <select ref={ref} className={cx(inputClass, 'h-10 pr-8', className)} {...rest}>
       {children}
     </select>
   );
@@ -47,7 +47,7 @@ interface FieldProps {
 export function Field({ label, htmlFor, hint, error, children, className }: FieldProps) {
   return (
     <div className={className}>
-      <label htmlFor={htmlFor} className="mb-1.5 block text-xs font-medium text-fg">
+      <label htmlFor={htmlFor} className="mb-1.5 block text-xs font-medium text-muted">
         {label}
       </label>
       {children}

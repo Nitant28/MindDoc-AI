@@ -147,7 +147,7 @@ export default function Vision() {
         }}
       />
 
-      <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
         <Card className="h-max lg:sticky lg:top-20">
           <CardHeader icon="layers" title="Pipeline" description="OpenCV → OCR" />
           <CardBody>

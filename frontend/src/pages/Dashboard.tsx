@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { errorMessage, intelApi } from '../api';
+import { discoveriesApi, errorMessage, findingsApi, intelApi, reportsApi } from '../api';
+import { useLayout } from '../components/Layout';
+import { Icon } from '../components/ui/Icon';
 import DocumentTable from '../components/DocumentTable';
 import { ConfidenceBadge } from '../components/Signals';
 import { Badge } from '../components/ui/Badge';
@@ -85,8 +87,62 @@ function UpcomingDates() {
   );
 }
 
+function greeting(email?: string | null): string {
+  const h = new Date().getHours();
+  const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const name = email ? email.split('@')[0].split(/[._-]/)[0] : '';
+  return name ? `${part}, ${name.charAt(0).toUpperCase()}${name.slice(1)}` : part;
+}
+
+/** The selected case's investigation state, from the live APIs (nothing here is a fixed number). */
+function CaseAtAGlance() {
+  const [state, setState] = useState<{ open: number; pursuing: number; findings: number; approved: number; reports: number; ran: boolean } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    Promise.all([discoveriesApi.list({ status: undefined }), findingsApi.list(), reportsApi.list()])
+      .then(([d, f, r]) => {
+        if (!alive) return;
+        setState({
+          open: d.counts.by_status.open ?? 0,
+          pursuing: d.counts.by_status.confirmed ?? 0,
+          findings: f.length,
+          approved: f.filter((x) => x.status === 'approved').length,
+          reports: r.length,
+          ran: d.last_run != null,
+        });
+      })
+      .catch(() => alive && setState(null));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (!state) return null;
+  const tiles: Array<{ to: string; label: string; value: number; sub: string; icon: IconName }> = [
+    { to: '/discoveries', label: 'Leads to review', value: state.open, sub: state.ran ? `${state.pursuing} being pursued` : 'Detectors not run yet', icon: 'target' },
+    { to: '/findings', label: 'Findings', value: state.findings, sub: `${state.approved} approved`, icon: 'bookmark' },
+    { to: '/findings', label: 'Frozen reports', value: state.reports, sub: 'Hash-checked on every read', icon: 'lock' },
+  ];
+  return (
+    <section aria-label="Investigation in this case" className="mb-6 grid gap-3 sm:grid-cols-3">
+      {tiles.map((t) => (
+        <Link key={t.label} to={t.to} className="group flex items-center gap-4 rounded-3xl bg-accent-container/60 p-5 text-accent-on-container transition-colors hover:bg-accent-container">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-surface/70 dark:bg-black/20">
+            <Icon name={t.icon} className="h-6 w-6" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[28px] font-normal leading-none tabular-nums">{t.value}</span>
+            <span className="mt-1 block text-sm font-medium">{t.label}</span>
+            <span className="block truncate text-xs opacity-75">{t.sub}</span>
+          </span>
+        </Link>
+      ))}
+    </section>
+  );
+}
+
 export default function Dashboard() {
-  useTitle('Dashboard');
+  useTitle('Home');
+  const { me, currentCase } = useLayout();
   const { documents, loading: docsLoading, error: docsError, remove } = useDocuments();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [ovLoading, setOvLoading] = useState(true);
@@ -146,8 +202,9 @@ export default function Dashboard() {
   return (
     <Page>
       <PageHeader
-        title="Overview"
-        description="Workspace intelligence at a glance: what you have, what the AI found, and how well it is answering."
+        eyebrow={currentCase ? <Badge tone="accent" icon="folder">{currentCase.title}</Badge> : undefined}
+        title={greeting(me?.email)}
+        description="Your documents, what MindDoc found in them, and how well it is answering."
         actions={
           <>
             <LinkButton to="/chat" icon="chat">
@@ -159,6 +216,8 @@ export default function Dashboard() {
           </>
         }
       />
+
+      <CaseAtAGlance />
 
       {ovError ? (
         <Banner tone="info" className="mb-6" title="Workspace analytics unavailable">

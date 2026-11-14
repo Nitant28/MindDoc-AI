@@ -642,6 +642,62 @@ class ReportFinding(Base):
     finding_id = Column(Integer, ForeignKey("findings.id"), index=True, nullable=False)  # a finding *version*
 
 
+# ---------------------------------------------------------------- Discovery ledger (R7, INVESTIGATION_ENGINE §5)
+
+class DiscoveryRun(Base):
+    __tablename__ = "discovery_runs"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False)
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime)
+    params = Column(Text, nullable=False)                     # JSON
+    versions = Column(Text, nullable=False)                   # JSON: detector -> version
+    n_transactions = Column(Integer, nullable=False, default=0)
+    n_found = Column(Integer, nullable=False, default=0)
+    n_new = Column(Integer, nullable=False, default=0)
+    run_by = Column(Integer, ForeignKey("users.id"))
+
+
+class Discovery(Base):
+    """A lead found by a deterministic detector, with the transactions and evidence behind it. Never a verdict.
+    The analyst's disposition survives re-runs; a lead no longer found is kept and marked."""
+    __tablename__ = "discoveries"
+    __table_args__ = (UniqueConstraint("case_id", "discovery_key", name="uq_discovery_key"),)
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False)
+    discovery_key = Column(String(64), nullable=False)
+    detector = Column(String, nullable=False, index=True)
+    detector_version = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    summary = Column(Text, nullable=False)
+    amount_minor = Column(BigInteger, nullable=False, default=0)
+    payload = Column(Text, nullable=False)                    # JSON: transactions, path, parameters
+    status = Column(String, nullable=False, default="open", index=True)   # open | confirmed | dismissed
+    disposition_reason = Column(Text)
+    disposed_by = Column(Integer, ForeignKey("users.id"))
+    disposed_at = Column(DateTime)
+    first_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_run_id = Column(Integer, ForeignKey("discovery_runs.id"))
+    still_detected = Column(Boolean, nullable=False, default=True)
+
+
+class PartyTag(Base):
+    """An analyst's mark on a party record, e.g. `related` (related to the subject), with the reason."""
+    __tablename__ = "party_tags"
+    __table_args__ = (UniqueConstraint("case_id", "party_id", "tag", name="uq_party_tag"),)
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), index=True, nullable=False)
+    party_id = Column(Integer, ForeignKey("parties.id", ondelete="CASCADE"), nullable=False)
+    tag = Column(String, nullable=False)
+    reason = Column(Text, nullable=False)
+    set_by = Column(Integer, ForeignKey("users.id"))
+    set_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 def _auto_migrate():
     """Add columns introduced after a table was created (SQLite has no create_all upgrades)."""
     insp = inspect(engine)

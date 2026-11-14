@@ -33,8 +33,11 @@ def resolve_parties(case_id: Optional[int] = None, db: Session = Depends(get_db)
 def list_parties(case_id: Optional[int] = None, as_of: Optional[datetime] = None, db: Session = Depends(get_db),
                  user=Depends(get_current_user)):
     """Canonical parties (optionally as they stood at system time `as_of`)."""
+    from app.discovery.service import tags_for
     case = _case(db, user, case_id)
-    return {"case_id": case.id, "as_of": as_of, "parties": service.parties_overview(db, case.id, as_of)}
+    tags = tags_for(db, case.id)
+    parties = [{**p, "tags": tags.get(p["party_id"], {})} for p in service.parties_overview(db, case.id, as_of)]
+    return {"case_id": case.id, "as_of": as_of, "parties": parties}
 
 
 @router.get("/reviews")
@@ -135,8 +138,34 @@ def claim_versions(key: str, case_id: Optional[int] = None, db: Session = Depend
 @router.get("/{party_id}")
 def detail(party_id: int, case_id: Optional[int] = None, db: Session = Depends(get_db),
            user=Depends(get_current_user)):
+    from app.discovery.service import tags_for
     case = _case(db, user, case_id)
     try:
-        return service.party_detail(db, case.id, party_id)
+        out = service.party_detail(db, case.id, party_id)
     except service.IdentityError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    return {**out, "tags": tags_for(db, case.id).get(out.get("party_id", party_id), {})}
+
+
+class TagBody(BaseModel):
+    related: bool
+    reason: str = Field(default="", max_length=2000)
+
+
+@router.put("/{party_id}/tags")
+def set_related(party_id: int, body: TagBody, case_id: Optional[int] = None, db: Session = Depends(get_db),
+                user=Depends(get_current_user)):
+    """Mark (or unmark) a party as related to the subject, with the reason. The end-use detector treats payments
+    to related parties after a loan disbursement as leads."""
+    from app.core import audit
+    from app.discovery.service import DiscoveryError, set_tag
+    case = _case(db, user, case_id, "analyst")
+    try:
+        out = set_tag(db, user.tenant_id, case.id, party_id, "related", body.related, body.reason, user.id)
+    except DiscoveryError as e:
+        db.rollback()
+        raise HTTPException(status_code=404 if "not found" in str(e) else 422, detail=str(e))
+    audit.record(db, user.tenant_id, user.id, "party.tag", "party", party_id,
+                 {"tag": "related", "on": body.related, "reason": body.reason})
+    db.commit()
+    return out

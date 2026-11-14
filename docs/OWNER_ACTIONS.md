@@ -44,7 +44,7 @@ Either:
 ## 6. Approvals the assistant will ask for explicitly
 - Merging `consolidate/v2-base` into `main` (which deploys to Render).
 - Any production database migration, credential, billing, DNS or visibility change.
-- The market decision at M1 and the forensic-detector validation gate M2.
+- The market decision at M1. (The forensic-detector gate M2 was lifted by the owner on 2026-11-14 without a pilot; R7 is built, and the market is still not validated.)
 - **Account Aggregator holder data (privacy decision, open).** The AA import does not read the holder profile (name,
   PAN, mobile, …). Reading only the holder name and PAN would let AA statements link to parties automatically, as PDF
   headers do. Until you decide, an analyst can set the holder by hand.

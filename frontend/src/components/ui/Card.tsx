@@ -4,7 +4,7 @@ import { Icon, type IconName } from './Icon';
 
 export function Card({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cx('rounded-xl border border-line bg-surface shadow-sm shadow-black/[0.03]', className)} {...rest}>
+    <div className={cx('min-w-0 rounded-3xl border border-line bg-surface', className)} {...rest}>
       {children}
     </div>
   );
@@ -21,15 +21,15 @@ interface CardHeaderProps {
 
 export function CardHeader({ title, description, icon, actions, className, id }: CardHeaderProps) {
   return (
-    <div className={cx('flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5', className)}>
-      <div className="flex min-w-0 items-start gap-2.5">
+    <div className={cx('flex flex-wrap items-start justify-between gap-3 px-5 pb-2 pt-4 sm:px-6', className)}>
+      <div className="flex min-w-0 items-start gap-3">
         {icon ? (
-          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-elevated text-muted">
-            <Icon name={icon} className="h-3.5 w-3.5" />
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-container text-accent-on-container">
+            <Icon name={icon} className="h-4 w-4" />
           </span>
         ) : null}
         <div className="min-w-0">
-          <h2 id={id} className="text-sm font-semibold leading-6 text-fg">
+          <h2 id={id} className="text-base font-medium leading-8 text-fg">
             {title}
           </h2>
           {description ? <p className="text-xs leading-5 text-muted">{description}</p> : null}
@@ -42,7 +42,7 @@ export function CardHeader({ title, description, icon, actions, className, id }:
 
 export function CardBody({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cx('p-4 sm:p-5', className)} {...rest}>
+    <div className={cx('px-5 pb-5 pt-3 sm:px-6 sm:pb-6', className)} {...rest}>
       {children}
     </div>
   );

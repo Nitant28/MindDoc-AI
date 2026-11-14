@@ -33,6 +33,66 @@ export interface Me {
   tenant_role?: TenantRole;
 }
 
+// ─────────────────────────── Discoveries (R7) ──────────────────────────
+
+export type DiscoveryStatus = 'open' | 'confirmed' | 'dismissed';
+
+export interface DiscoverySummary {
+  id: number;
+  detector: string;
+  detector_version: string;
+  title: string;
+  summary: string;
+  amount_minor: number;
+  status: DiscoveryStatus;
+  disposition_reason: string | null;
+  disposed_by: number | null;
+  disposed_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  still_detected: boolean;
+  transactions: number;
+}
+
+export interface DiscoveryTxn {
+  key: string;
+  document_id: number;
+  page: number | null;
+  seq: number | null;
+  box: number[] | null;
+  date: string;
+  amount_minor: number;
+  direction: 'debit' | 'credit';
+  channel: string;
+  counterparty: string | null;
+  counterparty_name: string | null;
+  narration: string;
+  claim_id: number | null;
+}
+
+export interface DiscoveryDetail extends Omit<DiscoverySummary, 'transactions'> {
+  transactions: DiscoveryTxn[];
+  details: Record<string, unknown>;
+  rule_out: string[];
+  description: string | null;
+}
+
+export interface DiscoveryList {
+  case_id: number;
+  discoveries: DiscoverySummary[];
+  counts: { by_detector: Record<string, number>; by_status: Record<string, number> };
+  no_longer_detected: number;
+  last_run: { id: number; started_at: string; transactions: number; found: number; new: number; version: Record<string, string> } | null;
+}
+
+export interface DetectorInfo {
+  id: string;
+  title: string;
+  description: string;
+  defaults: Record<string, unknown>;
+  rule_out: string[];
+}
+
 // ─────────────────────────── Cases and team (ADR-0012) ──────────────────────────
 
 export type CaseRole = 'viewer' | 'analyst' | 'reviewer' | 'lead';
@@ -633,6 +693,8 @@ export interface PartySummary {
   documents: number[];
   /** Bank accounts this party holds (statement header or analyst). */
   accounts?: Array<{ id: number; masked: string; ifsc: string | null }>;
+  /** Analyst marks on the party, e.g. { related: "director's relative" }. */
+  tags?: Record<string, string>;
 }
 
 export interface IdentityEventView {

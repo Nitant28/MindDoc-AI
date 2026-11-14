@@ -121,3 +121,24 @@ Without them, page-highlight citations and re-processing are unavailable for the
   - `ACCOUNT_HASH_KEY` is unset, so it is derived from the Render-generated `JWT_SECRET`.
 - **Rollback:** redeploy `f11a241` (the previous `main`) from the Render dashboard. On SQLite the schema is recreated,
   so there is no migration to reverse.
+
+**2026-11-14: `main` = `e808bc3`, version 2.2.0** (merge of `consolidate/v2-base`: cases and roles (ADR-0012), PyMuPDF
+removed (ADR-0006), R8 fragility, disclosure copies and evidence bundles; owner-approved).
+- **Render** reported version 2.2.0 about 1.5 minutes after the push.
+  - The new routes are in the API schema (cases, team, disclosures, bundle; 66 paths); protected routes answer 401
+    without a token.
+  - `/cases`, `/findings`, `/settings` and an invitation sign-up link are served.
+  - The Render app serves the new frontend build.
+- **CI on `main`:** backend, backend-postgres, frontend and Docker all green.
+- **Vercel production:**
+  - `mind-doc-ai` and `mind-doc-ai-msb6` serve the new frontend and proxy `/api` to version 2.2.0.
+  - `mind-doc-ai-lxft` proxies `/api` to 2.2.0; its frontend serves the new frontend.
+  - `mind-doc-ai-ny1m` still returns 500 (owner action, unchanged).
+- **Not done:** no production account, organisation, invitation or data was created; signed-in flows were tested
+  locally, in CI and on a local preview only.
+- **Known limits:**
+  - The free plan reset the SQLite database and uploads again, so earlier accounts are gone.
+  - Organisations, cases and invitations made on this deployment will be lost at the next deploy.
+- **Rollback:** redeploy `2ceb33c` (the previous `main`) from the Render dashboard.
+  - On SQLite the schema is recreated, so there is nothing to reverse.
+  - On PostgreSQL, downgrade to `0008` first: this drops `case_members`, `tenant_invites` and `report_disclosures`.

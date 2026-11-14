@@ -84,6 +84,14 @@ Summary, type + confidence, reading stats, weighted keywords, extracted entities
 - The **case switcher** in the header chooses the case that Documents, Parties, Findings and Chat work in. The
   General case is open to the whole organisation.
 
+### Discoveries
+- **Run detectors** on the Discoveries page (analysts; parties are resolved first). Each lead names a pattern, lists the
+  transactions with links to the rows on the statement pages, and says what to rule out first.
+- **Pursue** or **Dismiss as explained** with a reason; the decision is kept when the detectors run again.
+- **Draft a finding** from a lead to pin its transfer claims as evidence. It still needs a reviewer's approval.
+- Mark a party as **related** (Parties → open a party) so that loan money reaching it is reported.
+- Press **Ctrl K** (or **/**) anywhere to search pages, cases, documents and actions.
+
 ### Findings, reports and disclosure copies
 - A finding's page shows its **robustness**: which independent sources it rests on. "Rests on one source" means
   removing that one statement (or its copies) leaves a supporting claim without evidence.

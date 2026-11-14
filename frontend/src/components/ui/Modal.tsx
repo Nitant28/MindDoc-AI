@@ -59,7 +59,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
 
   return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6" onKeyDown={onKeyDown}>
-      <div className="absolute inset-0 animate-fade-in bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 animate-fade-in bg-black/40" onClick={onClose} aria-hidden="true" />
       <div
         ref={panelRef}
         role="dialog"
@@ -67,13 +67,13 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
         className={cx(
-          'relative flex max-h-[92vh] w-full animate-slide-up flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-2xl',
+          'elevation-3 relative flex max-h-[92vh] w-full animate-scale-in flex-col overflow-hidden rounded-[28px] bg-surface',
           size === 'md' ? 'max-w-lg' : size === 'lg' ? 'max-w-3xl' : 'max-w-5xl',
         )}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+        <div className="flex items-start justify-between gap-3 px-6 pb-2 pt-6">
           <div className="min-w-0">
-            <h2 id={titleId} className="truncate text-sm font-semibold text-fg">
+            <h2 id={titleId} className="truncate text-[22px] font-normal text-fg">
               {title}
             </h2>
             {description ? (
@@ -85,7 +85,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
           <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close dialog" icon="x" />
         </div>
         <div className="min-h-0 flex-1 overflow-auto">{children}</div>
-        {footer ? <div className="flex flex-wrap justify-end gap-2 border-t border-line px-4 py-3 sm:px-5">{footer}</div> : null}
+        {footer ? <div className="flex flex-wrap justify-end gap-2 px-6 pb-6 pt-3">{footer}</div> : null}
       </div>
     </div>,
     document.body,
