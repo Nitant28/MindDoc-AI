@@ -1,9 +1,10 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
-import { authApi } from '../api';
-import { clearToken } from '../lib/storage';
+import { authApi, casesApi } from '../api';
+import { clearToken, getCaseId, setCaseId } from '../lib/storage';
 import { useTheme } from '../lib/theme';
-import type { Me } from '../types';
+import type { CaseSummary, Me } from '../types';
+import CaseSwitcher from './CaseSwitcher';
 import Sidebar, { NAV_ITEMS, isNavActive } from './Sidebar';
 import { Button } from './ui/Button';
 import { PageLoader } from './ui/Spinner';
@@ -11,6 +12,11 @@ import { PageLoader } from './ui/Spinner';
 export interface LayoutContext {
   me: Me | null;
   refreshMe: () => Promise<void>;
+  /** Cases the user can see, and the one case-scoped pages show (ADR-0012). */
+  cases: CaseSummary[];
+  currentCase: CaseSummary | null;
+  selectCase: (id: number) => void;
+  refreshCases: () => Promise<void>;
 }
 
 export function useLayout(): LayoutContext {
@@ -20,6 +26,8 @@ export function useLayout(): LayoutContext {
 export default function Layout() {
   const [open, setOpen] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
+  const [cases, setCases] = useState<CaseSummary[]>([]);
+  const [caseId, setCaseState] = useState<number | null>(getCaseId());
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, toggle } = useTheme();
@@ -36,6 +44,30 @@ export default function Layout() {
     void refreshMe();
   }, [refreshMe]);
 
+  const refreshCases = useCallback(async () => {
+    try {
+      const list = await casesApi.list();
+      setCases(list);
+      // a stored case the user can no longer see (or another user's) falls back to General
+      const stored = getCaseId();
+      if (stored != null && !list.some((c) => c.id === stored)) {
+        setCaseId(null);
+        setCaseState(null);
+      }
+    } catch {
+      setCases([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCases();
+  }, [refreshCases]);
+
+  const selectCase = useCallback((id: number) => {
+    setCaseId(id);
+    setCaseState(id);
+  }, []);
+
   useEffect(() => {
     setOpen(false);
   }, [location.pathname]);
@@ -50,12 +82,17 @@ export default function Layout() {
   }, [open]);
 
   const current = NAV_ITEMS.find((n) => isNavActive(n, location.pathname));
-  const ctx = useMemo<LayoutContext>(() => ({ me, refreshMe }), [me, refreshMe]);
+  const currentCase = cases.find((c) => c.id === caseId) ?? cases.find((c) => c.is_default) ?? null;
+  const ctx = useMemo<LayoutContext>(
+    () => ({ me, refreshMe, cases, currentCase, selectCase, refreshCases }),
+    [me, refreshMe, cases, currentCase, selectCase, refreshCases],
+  );
   const initial = (me?.email ?? '?').charAt(0).toUpperCase();
   const workspace = me?.workspace != null && me.workspace !== '' ? String(me.workspace) : 'Workspace';
 
   const logout = () => {
     clearToken();
+    setCaseId(null);
     navigate('/login', { replace: true });
   };
 
@@ -82,8 +119,12 @@ export default function Layout() {
             icon="menu"
           />
           <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-sm">
-            <span className="hidden max-w-[10rem] truncate text-subtle sm:inline">{workspace}</span>
-            <span className="hidden text-line-strong sm:inline" aria-hidden="true">
+            <span className="hidden max-w-[10rem] truncate text-subtle xl:inline">{workspace}</span>
+            <span className="hidden text-line-strong xl:inline" aria-hidden="true">
+              /
+            </span>
+            <CaseSwitcher cases={cases} current={currentCase} onSelect={selectCase} />
+            <span className="text-line-strong" aria-hidden="true">
               /
             </span>
             <span className="truncate font-medium text-fg" aria-current="page">
@@ -123,7 +164,8 @@ export default function Layout() {
 
         <main id="main" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
           <Suspense fallback={<PageLoader />}>
-            <Outlet context={ctx} />
+            {/* switching case remounts the page so everything reloads for the new case */}
+            <Outlet key={currentCase?.id ?? 0} context={ctx} />
           </Suspense>
         </main>
       </div>

@@ -1,5 +1,5 @@
 import axios, { type AxiosError, type AxiosProgressEvent } from 'axios';
-import { clearToken, getToken } from './lib/storage';
+import { clearToken, getCaseId, getToken } from './lib/storage';
 import type {
   ApiErrorBody,
   Capabilities,
@@ -43,6 +43,12 @@ import type {
   FindingView,
   ReportSummary,
   ReportView,
+  CaseDetail,
+  CaseRole,
+  CaseSummary,
+  TeamInvite,
+  TeamMember,
+  TenantRole,
 } from './types';
 
 const envUrl = import.meta.env.VITE_API_URL?.trim();
@@ -60,9 +66,24 @@ export function handleUnauthorized(): void {
   if (path !== '/login' && path !== '/register') window.location.assign('/login');
 }
 
+/** Endpoints that work on one case: the selected case is sent as `case_id` unless the call sets its own. */
+const CASE_SCOPED = ['/parties', '/accounts', '/findings', '/reports', '/documents/list', '/documents/upload', '/documents/import-aa'];
+
+export function isCaseScoped(url: string): boolean {
+  return CASE_SCOPED.some((p) => url === p || url.startsWith(`${p}/`) || url.startsWith(`${p}?`));
+}
+
 api.interceptors.request.use((config) => {
   const token = getToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  const caseId = getCaseId();
+  const url = config.url ?? '';
+  if (caseId != null && isCaseScoped(url)) {
+    config.params = { case_id: caseId, ...(config.params ?? {}) };
+  }
+  if (caseId != null && url === '/chat/query' && config.data && typeof config.data === 'object') {
+    config.data = { case_id: caseId, ...(config.data as object) };
+  }
   return config;
 });
 
@@ -144,6 +165,8 @@ export const authApi = {
 
 export const documentsApi = {
   list: () => api.get<DocumentSummary[]>('/documents/list').then((r) => arr(r.data)),
+  /** Every document the user can see, in any case (ignores the selected case). */
+  listAll: () => api.get<DocumentSummary[]>('/documents/list', { params: { case_id: undefined } }).then((r) => arr(r.data)),
   get: (id: number) => api.get<DocumentDetail>(`/documents/${id}`).then((r) => r.data),
   /** Import a decrypted Account Aggregator deposit payload (ReBIT JSON/XML) the customer already holds. */
   importAa: (file: File, consentRef?: string) => {
@@ -313,7 +336,7 @@ export async function streamChat(
         Accept: 'text/event-stream',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ case_id: getCaseId() ?? undefined, ...body }),
       signal,
     });
 
@@ -408,4 +431,34 @@ export const reportsApi = {
     api.post<ReportView>('/reports', { title, finding_ids: findingIds }).then((r) => r.data),
   /** The frozen snapshot exactly as hashed. */
   export: (id: number) => api.get<Blob>(`/reports/${id}/export`, { responseType: 'blob' }).then((r) => r.data),
+};
+
+/** Cases (engagements) and their members (ADR-0012). Case ids are explicit here, never the selected case. */
+export const casesApi = {
+  list: () => api.get<CaseSummary[]>('/cases').then((r) => arr(r.data)),
+  get: (id: number) => api.get<CaseDetail>(`/cases/${id}`).then((r) => r.data),
+  create: (title: string) => api.post<CaseSummary>('/cases', { title }).then((r) => r.data),
+  update: (id: number, body: { title?: string; status?: 'open' | 'closed' }) =>
+    api.put<CaseSummary>(`/cases/${id}`, body).then((r) => r.data),
+  addMember: (id: number, email: string, role: CaseRole) =>
+    api.post(`/cases/${id}/members`, { email, role }).then((r) => r.data),
+  setRole: (id: number, userId: number, role: CaseRole) =>
+    api.put(`/cases/${id}/members/${userId}`, { role }).then((r) => r.data),
+  removeMember: (id: number, userId: number) => api.delete(`/cases/${id}/members/${userId}`).then((r) => r.data),
+  linkDocument: (id: number, documentId: number) =>
+    api.post(`/cases/${id}/documents`, { document_id: documentId }).then((r) => r.data),
+  unlinkDocument: (id: number, documentId: number) =>
+    api.delete(`/cases/${id}/documents/${documentId}`).then((r) => r.data),
+};
+
+/** Organisation members and invitations. */
+export const teamApi = {
+  members: () =>
+    api.get<{ me: number; is_admin: boolean; members: TeamMember[] }>('/team/members').then((r) => r.data),
+  updateMember: (id: number, body: { tenant_role?: TenantRole; is_active?: boolean }) =>
+    api.put<TeamMember>(`/team/members/${id}`, body).then((r) => r.data),
+  invites: () => api.get<TeamInvite[]>('/team/invites').then((r) => arr(r.data)),
+  invite: (body: { email?: string; tenant_role: TenantRole; days?: number }) =>
+    api.post<TeamInvite>('/team/invites', body).then((r) => r.data),
+  revoke: (id: number) => api.delete<TeamInvite>(`/team/invites/${id}`).then((r) => r.data),
 };

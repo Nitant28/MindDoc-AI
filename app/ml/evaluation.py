@@ -8,6 +8,7 @@ This makes retrieval quality a number you can track, not a vibe.
 from __future__ import annotations
 
 import random
+from typing import Optional
 import time
 
 from sqlalchemy.orm import Session
@@ -34,11 +35,13 @@ def _llm_questions(texts: list[str]) -> list[str]:
     return [str(q) for q in qs] if len(qs) == len(texts) else []
 
 
-def evaluate(db: Session, tenant_id: int, sample_size: int = 20, use_llm: bool = True, seed: int = 7) -> dict:
+def evaluate(db: Session, tenant_id: int, sample_size: int = 20, use_llm: bool = True, seed: int = 7,
+             allowed: Optional[list[int]] = None) -> dict:
+    """`allowed`: document allow-list from case access (ADR-0012); sampling and searches stay inside it."""
     t0 = time.perf_counter()
     index = get_index(db, tenant_id)          # searches run on the active backend
     corpus = memory_index(db, tenant_id)      # sampling and pseudo-query term weights
-    pool = [r for r in corpus.records if len(r.text) > 200]
+    pool = [r for r in corpus.records if len(r.text) > 200 and (allowed is None or r.document_id in allowed)]
     if len(pool) < 3:
         return {"n": 0, "detail": "Need at least 3 substantial chunks - upload more documents."}
     rng = random.Random(seed)
@@ -56,7 +59,8 @@ def evaluate(db: Session, tenant_id: int, sample_size: int = 20, use_llm: bool =
     def run(strategy: str, rerank: bool) -> tuple[float, float]:
         hits5, rr = 0, 0.0
         for q, rec in zip(queries, sample):
-            res = index.search(q, k=10, strategy=strategy, use_rerank=rerank, use_mmr=False)
+            res = index.search(q, k=10, strategy=strategy, use_rerank=rerank, use_mmr=False,
+                               document_ids=allowed)
             ids = [h.chunk.id for h in res]
             if rec.id in ids[:5]:
                 hits5 += 1

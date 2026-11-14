@@ -17,6 +17,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', icon: 'dashboard', section: 'workspace' },
   { to: '/chat', label: 'Chat', icon: 'chat', section: 'workspace' },
   { to: '/upload', label: 'Documents', icon: 'file', section: 'workspace', match: ['/upload', '/documents'] },
+  { to: '/cases', label: 'Cases', icon: 'folder', section: 'workspace' },
   { to: '/parties', label: 'Parties', icon: 'user', section: 'intelligence' },
   { to: '/findings', label: 'Findings', icon: 'bookmark', section: 'intelligence' },
   { to: '/graph', label: 'Knowledge Graph', icon: 'graph', section: 'intelligence' },

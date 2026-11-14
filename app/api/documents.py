@@ -13,7 +13,8 @@ from app.ai.extraction import extract_fields
 from app.api.deps import enforce_rate, get_current_user
 from app.core.config import settings
 from app.core.security import query_limiter, upload_limiter
-from app.database.models import Case, Document, DocumentChunk, Job, SavedItem, get_db
+from app.cases import access
+from app.database.models import CaseDocument, Document, DocumentChunk, Job, SavedItem, get_db
 from app.services import ingestion
 from app.services.document_service import ALLOWED_EXT
 from app.vision import highlight
@@ -22,11 +23,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _own_doc(db: Session, doc_id: int, user) -> Document:
-    doc = db.query(Document).filter(Document.id == doc_id, Document.tenant_id == user.tenant_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return doc
+def _own_doc(db: Session, doc_id: int, user, write: bool = False) -> Document:
+    """The document if the caller may see it (its cases, ADR-0012); `write` needs analyst rights in all its cases."""
+    return access.require_document(db, user, doc_id, write=write)
 
 
 @router.post("/upload")
@@ -44,8 +43,7 @@ def upload_document(response: Response, file: UploadFile = File(...), wait: bool
         raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb} MB")
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
-    if case_id is not None and not db.query(Case).filter(Case.id == case_id, Case.tenant_id == user.tenant_id).first():
-        raise HTTPException(status_code=404, detail="Case not found")
+    case_id = access.require_case(db, user, case_id, "analyst").id
     if settings.async_ingestion and not wait:
         try:
             doc, created = ingestion.register_upload(db, data, filename, user.tenant_id, user.id, case_id)
@@ -57,7 +55,7 @@ def upload_document(response: Response, file: UploadFile = File(...), wait: bool
                 "status_url": f"/api/documents/{doc.id}/status",
                 "analysis": ingestion.document_detail(db, doc) if doc.status == "completed" else None}
     try:
-        doc = ingestion.ingest_bytes(db, data, filename, user.tenant_id, user.id)
+        doc = ingestion.ingest_bytes(db, data, filename, user.tenant_id, user.id, case_id)
     except ingestion.IngestionError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
@@ -72,7 +70,8 @@ def upload_document(response: Response, file: UploadFile = File(...), wait: bool
 
 @router.post("/import-aa")
 def import_account_aggregator(file: UploadFile = File(...), consent_ref: Optional[str] = Form(None),
-                              db: Session = Depends(get_db), user=Depends(get_current_user)):
+                              case_id: Optional[int] = None, db: Session = Depends(get_db),
+                              user=Depends(get_current_user)):
     """Import a decrypted Account Aggregator deposit FI payload (ReBIT schema, JSON or XML) that the customer already
     holds (ADR-0015). MindDoc does not request consent or fetch data from an AA. `consent_ref` records the consent
     artefact reference for provenance. Invalid payloads are rejected with the schema reason (HTTP 400)."""
@@ -86,8 +85,9 @@ def import_account_aggregator(file: UploadFile = File(...), consent_ref: Optiona
     if len(data) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"File exceeds {settings.max_upload_mb} MB")
     ref = (consent_ref or "").strip()[:200] or None
+    case_id = access.require_case(db, user, case_id, "analyst").id
     try:
-        doc, created = statements.import_aa(db, data, filename, user.tenant_id, user.id, ref)
+        doc, created = statements.import_aa(db, data, filename, user.tenant_id, user.id, ref, case_id)
     except AAError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Not a valid ReBIT deposit payload: {e}")
@@ -123,7 +123,7 @@ def statement_analysis(doc_id: int, refresh: bool = False, db: Session = Depends
     Values are never altered to make balances reconcile."""
     from app.services import statements
     enforce_rate(query_limiter, user)
-    doc = _own_doc(db, doc_id, user)
+    doc = _own_doc(db, doc_id, user, write=refresh)
     try:
         stmt = statements.get_or_analyse(db, doc, refresh=refresh)
     except ValueError as e:
@@ -153,7 +153,7 @@ def reprocess_document(doc_id: int, db: Session = Depends(get_db), user=Depends(
     """Queue a fresh processing run (e.g. after a failure or a parser upgrade)."""
     from app.jobs import queue
     enforce_rate(upload_limiter, user)
-    doc = _own_doc(db, doc_id, user)
+    doc = _own_doc(db, doc_id, user, write=True)
     if (doc.filename or "").lower().endswith((".json", ".xml")):
         raise HTTPException(status_code=422, detail="Imported Account Aggregator data is not re-parsed; "
                                                     "use statement refresh to re-run reconciliation")
@@ -167,11 +167,17 @@ def reprocess_document(doc_id: int, db: Session = Depends(get_db), user=Depends(
 
 
 @router.get("/list")
-def list_documents(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def list_documents(case_id: Optional[int] = None, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Documents the caller may see; with `case_id`, only that case's documents."""
     counts = dict(db.query(DocumentChunk.document_id, func.count(DocumentChunk.id))
                   .join(Document, Document.id == DocumentChunk.document_id)
                   .filter(Document.tenant_id == user.tenant_id).group_by(DocumentChunk.document_id).all())
-    docs = db.query(Document).filter(Document.tenant_id == user.tenant_id).order_by(Document.id.desc()).all()
+    q = db.query(Document).filter(Document.tenant_id == user.tenant_id)
+    if case_id is not None:
+        access.require_case(db, user, case_id, "viewer")
+        q = q.join(CaseDocument, CaseDocument.document_id == Document.id).filter(CaseDocument.case_id == case_id)
+    hidden = access.hidden_document_ids(db, user)
+    docs = [d for d in q.order_by(Document.id.desc()).all() if d.id not in hidden]
     return [{"id": d.id, "filename": d.filename, "created_at": d.created_at, "doc_type": d.doc_type,
              "summary": (d.summary or "")[:300] or None, "pages": d.pages, "chunk_count": counts.get(d.id, 0),
              "quality_score": d.quality_score, "pii_count": (d.pii or {}).get("count", 0),
@@ -239,13 +245,13 @@ def extract(doc_id: int, request: ExtractRequest, db: Session = Depends(get_db),
 
 @router.delete("/delete/{doc_id}")
 def delete_document(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    ingestion.delete_document(db, _own_doc(db, doc_id, user))
+    ingestion.delete_document(db, _own_doc(db, doc_id, user, write=True))
     return {"message": "Document deleted"}
 
 
 @router.put("/edit/{doc_id}")
 def edit_document(doc_id: int, filename: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    doc = _own_doc(db, doc_id, user)
+    doc = _own_doc(db, doc_id, user, write=True)
     doc.filename = filename.strip()[:255] or doc.filename
     db.commit()
     return {"id": doc.id, "filename": doc.filename}

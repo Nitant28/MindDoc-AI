@@ -86,7 +86,25 @@ class User(Base):
     hashed_password = Column(String)
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
+    tenant_role = Column(String, nullable=False, default="admin", server_default="admin")  # admin | member
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1")
     tenant = relationship("Tenant")
+
+
+class TenantInvite(Base):
+    """A single-use invitation to join an organisation (ADR-0012). Only the SHA-256 of the token is stored."""
+    __tablename__ = "tenant_invites"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    email = Column(String)                                   # if set, only this address can use it
+    tenant_role = Column(String, nullable=False)             # admin | member
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    used_by = Column(Integer, ForeignKey("users.id"))
+    used_at = Column(DateTime)
+    revoked_at = Column(DateTime)
 
 
 class Document(Base):
@@ -250,6 +268,17 @@ class Case(Base):
     is_default = Column(Boolean, default=False)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CaseMember(Base):
+    """Explicit membership of a case with a role: lead, analyst, reviewer or viewer (ADR-0012)."""
+    __tablename__ = "case_members"
+    case_id = Column(Integer, ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    role = Column(String, nullable=False)
+    added_by = Column(Integer, ForeignKey("users.id"))
+    added_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class CaseDocument(Base):

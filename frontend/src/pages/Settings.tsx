@@ -2,6 +2,7 @@ import { useEffect, useId, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authApi, chatApi, errorMessage } from '../api';
 import { useLayout } from '../components/Layout';
+import TeamPanel from '../components/TeamPanel';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, CardBody, CardHeader } from '../components/ui/Card';
@@ -89,7 +90,7 @@ export default function Settings() {
 
   return (
     <Page className="max-w-4xl">
-      <PageHeader title="Settings" description="Account, appearance and saved answers." />
+      <PageHeader title="Settings" description="Account, organisation, appearance and saved answers." />
       <div className="space-y-6">
         <Card>
           <CardHeader icon="user" title="Profile" />
@@ -110,6 +111,8 @@ export default function Settings() {
             </dl>
           </CardBody>
         </Card>
+
+        <TeamPanel />
 
         <Card>
           <CardHeader icon="mail" title="Change email" description="Confirm with your current password." />

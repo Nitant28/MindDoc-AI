@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.api.parties import _case
+from app.cases import access
 from app.database.models import BankAccount, CaseDocument, Statement, get_db
 from app.findings import service
 
@@ -54,6 +55,9 @@ def set_holder(account_id: int, body: HolderBody, db: Session = Depends(get_db),
     a = db.query(BankAccount).filter(BankAccount.id == account_id, BankAccount.tenant_id == user.tenant_id).first()
     if a is None:
         raise HTTPException(status_code=404, detail="Account not found")
+    # the holder applies wherever the account's statements are used: analyst rights in all of those cases
+    for (doc_id,) in db.query(Statement.document_id).filter(Statement.bank_account_id == a.id):
+        access.require_document(db, user, doc_id, write=True)
     a.holder_name, a.holder_source = " ".join(body.name.split()), "analyst"
     a.holder_set_by, a.holder_set_at = user.id, datetime.utcnow()
     db.commit()
@@ -82,7 +86,7 @@ def list_findings(case_id: Optional[int] = None, db: Session = Depends(get_db), 
 @findings_router.post("")
 def create_finding(body: FindingBody, case_id: Optional[int] = None, db: Session = Depends(get_db),
                    user=Depends(get_current_user)):
-    case = _case(db, user, case_id)
+    case = _case(db, user, case_id, "analyst")
     try:
         f = service.create(db, user.tenant_id, case.id, user.id, body.title, body.statement,
                            [s.model_dump() for s in body.support])
@@ -116,7 +120,8 @@ class ReviseBody(BaseModel):
 @findings_router.post("/{finding_id}/revise")
 def revise_finding(finding_id: int, body: ReviseBody, case_id: Optional[int] = None, db: Session = Depends(get_db),
                    user=Depends(get_current_user)):
-    case = _case(db, user, case_id)
+    # approving or rejecting is a reviewer's decision; drafting and proposing are an analyst's
+    case = _case(db, user, case_id, "reviewer" if body.status in ("approved", "rejected") else "analyst")
     try:
         f = service.revise(db, user.tenant_id, case.id, user.id, finding_id, title=body.title,
                            statement=body.statement, status=body.status,
@@ -132,7 +137,7 @@ def revise_finding(finding_id: int, body: ReviseBody, case_id: Optional[int] = N
 @findings_router.post("/{finding_id}/refresh")
 def refresh_finding(finding_id: int, case_id: Optional[int] = None, db: Session = Depends(get_db),
                     user=Depends(get_current_user)):
-    case = _case(db, user, case_id)
+    case = _case(db, user, case_id, "analyst")
     try:
         f = service.refresh(db, user.tenant_id, case.id, user.id, finding_id)
     except service.FindingError as e:
@@ -159,7 +164,7 @@ def list_reports(case_id: Optional[int] = None, db: Session = Depends(get_db), u
 def issue_report(body: ReportBody, case_id: Optional[int] = None, db: Session = Depends(get_db),
                  user=Depends(get_current_user)):
     """Freeze approved finding versions into a report (immutable; content hash over the full snapshot)."""
-    case = _case(db, user, case_id)
+    case = _case(db, user, case_id, "reviewer")
     try:
         r = service.issue(db, user.tenant_id, case.id, user.id, body.title, body.finding_ids)
     except service.FindingError as e:
@@ -191,3 +196,4 @@ def export_report(report_id: int, case_id: Optional[int] = None, db: Session = D
     return Response(content=r.snapshot.encode("utf-8"), media_type="application/json",
                     headers={"Content-Disposition": f'attachment; filename="minddoc-report-{r.id}.json"',
                              "X-Content-SHA256": r.content_hash})
+

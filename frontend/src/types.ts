@@ -8,6 +8,8 @@
 export interface Credentials {
   email: string;
   password: string;
+  /** Join an existing organisation (one-time invitation token). */
+  invite_token?: string;
 }
 
 export interface TokenResponse {
@@ -28,6 +30,60 @@ export interface Me {
   id: number;
   email: string;
   workspace?: string | number | null;
+  tenant_role?: TenantRole;
+}
+
+// ─────────────────────────── Cases and team (ADR-0012) ──────────────────────────
+
+export type CaseRole = 'viewer' | 'analyst' | 'reviewer' | 'lead';
+export type TenantRole = 'admin' | 'member';
+
+export interface CaseSummary {
+  id: number;
+  title: string;
+  status: 'open' | 'closed';
+  is_default: boolean;
+  created_at: string | null;
+  my_role: CaseRole | null;
+  documents: number;
+  /** null for the General case, which every organisation member can use */
+  members: number | null;
+}
+
+export interface CaseMemberView {
+  user_id: number;
+  email: string;
+  role: CaseRole;
+  active: boolean;
+  added_at: string;
+}
+
+export interface CaseDetail extends Omit<CaseSummary, 'members'> {
+  members: CaseMemberView[];
+  open_to_organisation: boolean;
+  /** `cases`: how many cases hold the document (it cannot leave its last one) */
+  document_list: Array<{ id: number; filename: string; status: string; doc_type: string | null; cases: number }>;
+}
+
+export interface TeamMember {
+  id: number;
+  email: string;
+  tenant_role: TenantRole;
+  active: boolean;
+  created_at: string | null;
+}
+
+export interface TeamInvite {
+  id: number;
+  email: string | null;
+  tenant_role: TenantRole;
+  state: 'open' | 'used' | 'revoked' | 'expired';
+  created_at: string;
+  expires_at: string;
+  used_by: number | null;
+  used_at: string | null;
+  /** only in the response that created it */
+  token?: string;
 }
 
 // ─────────────────────────── Documents ──────────────────────────
@@ -176,6 +232,7 @@ export interface ChatQueryBody {
   session_id?: number | null;
   document_id?: number | null;
   document_ids?: number[] | null;
+  case_id?: number | null;
   mode?: ChatMode;
 }
 
