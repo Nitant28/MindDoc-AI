@@ -154,7 +154,7 @@ def get_or_analyse(db: Session, doc: Document, refresh: bool = False) -> Stateme
 
 
 def import_aa(db: Session, data: bytes, filename: str, tenant_id: int, owner_id: Optional[int],
-              consent_ref: Optional[str]) -> tuple[Document, bool]:
+              consent_ref: Optional[str], case_id: Optional[int] = None) -> tuple[Document, bool]:
     """Import a decrypted ReBIT deposit FI payload as a document plus its statement (ADR-0015). The payload is
     validated before anything is stored. Returns (document, newly_created); a repeated payload returns the original."""
     import hashlib
@@ -169,7 +169,7 @@ def import_aa(db: Session, data: bytes, filename: str, tenant_id: int, owner_id:
     doc = ingestion.ingest_parsed(db, ParsedDocument(pages=[Page(1, render_text(parsed))], kind="aa_deposit"),
                                   filename, tenant_id, owner_id, digest)
     doc.source_path = ingestion._store_original(tenant_id, doc.id, filename, data)
-    ingestion._link_case(db, tenant_id, doc.id)
+    ingestion._link_case(db, tenant_id, doc.id, case_id)
     analyse(db, doc, source_ref=consent_ref)
     db.commit()
     return doc, True

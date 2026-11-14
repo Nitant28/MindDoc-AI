@@ -220,18 +220,24 @@ def document_entities(db: Session, document_id: int, limit: int = 40) -> list[di
     return [{"name": n, "type": t, "count": int(c)} for n, t, c in rows]
 
 
-def graph(db: Session, tenant_id: int, document_id: Optional[int] = None, limit: int = 150) -> dict:
+def graph(db: Session, tenant_id: int, document_id: Optional[int] = None, limit: int = 150,
+          allowed: Optional[list[int]] = None) -> dict:
+    """Entities and relations; `allowed` (a document allow-list from case access) limits everything shown to what
+    those documents say."""
     q = db.query(Entity.id, Entity.name, Entity.type, func.sum(EntityMention.count).label("w")) \
         .join(EntityMention, EntityMention.entity_id == Entity.id).filter(Entity.tenant_id == tenant_id)
     if document_id:
         q = q.filter(EntityMention.document_id == document_id)
+    if allowed is not None:
+        q = q.filter(EntityMention.document_id.in_(allowed or [-1]))
     rows = q.group_by(Entity.id).order_by(func.sum(EntityMention.count).desc()).limit(limit).all()
     ids = [r[0] for r in rows]
     docs_by_ent: dict[int, set] = defaultdict(set)
     if ids:
         for eid, did in db.query(EntityMention.entity_id, EntityMention.document_id) \
                 .filter(EntityMention.entity_id.in_(ids)).distinct():
-            docs_by_ent[eid].add(did)
+            if allowed is None or did in allowed:
+                docs_by_ent[eid].add(did)
     nodes = [{"id": f"e:{eid}", "label": name, "type": etype, "weight": int(w),
               "documents": sorted(docs_by_ent[eid])} for eid, name, etype, w in rows]
     edges = []
@@ -240,6 +246,8 @@ def graph(db: Session, tenant_id: int, document_id: Optional[int] = None, limit:
             .filter(Relation.tenant_id == tenant_id, Relation.source_id.in_(ids), Relation.target_id.in_(ids))
         if document_id:
             rq = rq.filter(Relation.document_id == document_id)
+        if allowed is not None:
+            rq = rq.filter(Relation.document_id.in_(allowed or [-1]))
         weak: Counter = Counter()
         for s, t, r, w in rq.group_by(Relation.source_id, Relation.target_id, Relation.relation) \
                 .order_by(func.sum(Relation.weight).desc()).limit(limit * 4):
@@ -252,6 +260,8 @@ def graph(db: Session, tenant_id: int, document_id: Optional[int] = None, limit:
             .filter(CoMention.tenant_id == tenant_id, CoMention.a_entity_id.in_(ids), CoMention.b_entity_id.in_(ids))
         if document_id:
             cq = cq.filter(CoMention.document_id == document_id)
+        if allowed is not None:
+            cq = cq.filter(CoMention.document_id.in_(allowed or [-1]))
         for a, b, n in cq.group_by(CoMention.a_entity_id, CoMention.b_entity_id) \
                 .order_by(func.sum(CoMention.chunks).desc()).limit(limit * 4):
             weak[(a, b)] += int(n)
@@ -291,7 +301,7 @@ def parse_date(text: str):
 
 
 def timeline(db: Session, tenant_id: int, document_id: Optional[int] = None,
-             upcoming_days: Optional[int] = None, limit: int = 300) -> list[dict]:
+             upcoming_days: Optional[int] = None, limit: int = 300, allowed: Optional[list[int]] = None) -> list[dict]:
     """Every dated fact in the workspace (deadlines, renewals, effective dates) with its context."""
     from datetime import date
     from app.database.models import Document
@@ -302,6 +312,8 @@ def timeline(db: Session, tenant_id: int, document_id: Optional[int] = None,
          .filter(Entity.tenant_id == tenant_id, Entity.type == "DATE"))
     if document_id:
         q = q.filter(EntityMention.document_id == document_id)
+    if allowed is not None:
+        q = q.filter(EntityMention.document_id.in_(allowed or [-1]))
     today = date.today()
     seen, items = set(), []
     for name, doc_id, text, page, filename in q.limit(2000):

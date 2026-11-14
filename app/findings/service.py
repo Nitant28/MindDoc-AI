@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.database.models import (Case, Claim, ClaimEvidence, Document, Finding, FindingSupport, Party, Report,
                                   ReportFinding, User)
+from app.findings import fragility
 
 STATUSES = ("draft", "proposed", "approved", "rejected")
 TRANSITIONS = {"draft": {"proposed"}, "proposed": {"approved", "rejected", "draft"}, "approved": {"draft"},
@@ -239,7 +240,8 @@ def issue(db: Session, tenant_id: int, case_id: int, user_id: int, title: str, f
     now = datetime.utcnow().replace(microsecond=0)
     snapshot = {"report": {"title": title.strip(), "case": {"id": case_id, "title": case.title if case else None},
                            "frozen_at": now.isoformat(), "issued_by": issuer.email if issuer else None},
-                "findings": [view(db, case_id, found[i], live=False) for i in finding_ids],
+                "findings": [{**view(db, case_id, found[i], live=False),
+                              "robustness": fragility.for_finding(db, case_id, i)} for i in finding_ids],
                 "notice": "Findings are statements by the named analysts, each tied to the claim versions and page "
                           "regions listed. MindDoc does not determine fraud or intent."}
     body = canonical(snapshot)

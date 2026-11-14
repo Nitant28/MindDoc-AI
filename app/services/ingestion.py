@@ -54,18 +54,21 @@ def _link_case(db: Session, tenant_id: int, doc_id: int, case_id: Optional[int] 
         db.add(CaseDocument(case_id=case_id, document_id=doc_id, tenant_id=tenant_id))
 
 
-def ingest_bytes(db: Session, data: bytes, filename: str, tenant_id: int, owner_id: Optional[int] = None) -> Document:
+def ingest_bytes(db: Session, data: bytes, filename: str, tenant_id: int, owner_id: Optional[int] = None,
+                 case_id: Optional[int] = None) -> Document:
     """Synchronous ingestion (used with ?wait=true and by tests): parse and index inside the request."""
     digest = hashlib.sha256(data).hexdigest()
     existing = db.query(Document).filter(Document.tenant_id == tenant_id, Document.content_hash == digest).first()
     if existing and existing.status == "completed":
         logger.info("Duplicate upload of %s -> document %s", filename, existing.id)
+        _link_case(db, tenant_id, existing.id, case_id)  # the uploader holds the same file: add it to their case
+        db.commit()
         return existing
     parsed = parse_document(data, filename)
     doc = ingest_parsed(db, parsed, filename, tenant_id, owner_id, digest, doc=existing)
     try:  # keep the original so citations can be shown on the actual page
         doc.source_path = _store_original(tenant_id, doc.id, filename, data)
-        _link_case(db, tenant_id, doc.id)
+        _link_case(db, tenant_id, doc.id, case_id)
         db.commit()
     except OSError as e:
         logger.warning("could not store original for doc %s: %s", doc.id, e)
@@ -80,6 +83,8 @@ def register_upload(db: Session, data: bytes, filename: str, tenant_id: int, own
     digest = hashlib.sha256(data).hexdigest()
     existing = db.query(Document).filter(Document.tenant_id == tenant_id, Document.content_hash == digest).first()
     if existing:
+        _link_case(db, tenant_id, existing.id, case_id)  # the uploader holds the same file: add it to their case
+        db.commit()
         return existing, False
     validate_upload(data, filename)
     doc = Document(filename=filename, tenant_id=tenant_id, owner_id=owner_id, content_hash=digest,

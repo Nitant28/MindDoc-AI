@@ -49,3 +49,6 @@ Either:
   PAN, mobile, …). Reading only the holder name and PAN would let AA statements link to parties automatically, as PDF
   headers do. Until you decide, an analyst can set the holder by hand.
 - **`ACCOUNT_HASH_KEY`** must be set (and kept) on any persistent deployment before bank statements are uploaded.
+- **Vercel project `mind-doc-ai-ny1m`** returns 500 at runtime on production (it runs code as a serverless function
+  instead of serving `frontend/dist`). Fix its Framework/Root Directory settings, or delete it as a duplicate of
+  `mind-doc-ai`.

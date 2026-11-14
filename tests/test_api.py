@@ -118,16 +118,8 @@ def test_vision_analyze(client, alice):
 
 
 def _make_pdf(text: str) -> bytes:
-    import fitz
-    doc = fitz.open()
-    page = doc.new_page()
-    y = 72
-    for line in text.splitlines():
-        page.insert_text((72, y), line, fontsize=10)
-        y += 14
-    data = doc.tobytes()
-    doc.close()
-    return data
+    from tests.pdfgen import make_pdf
+    return make_pdf([text.splitlines()])
 
 
 def test_pdf_provenance_timeline_and_audit(client, alice):

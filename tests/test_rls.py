@@ -12,7 +12,9 @@ from app.database.tenancy import set_tenant
 
 pytestmark = pytest.mark.skipif(not models.IS_POSTGRES, reason="row-level security needs PostgreSQL (TEST_DB=postgres)")
 
-EXEMPT = {"tenants", "users", "jobs", "alembic_version"}
+# tenant_invites: redeemed at registration, before any tenant context exists (migration 0009); looked up by
+# token hash only and always filtered by tenant in the application, like users.
+EXEMPT = {"tenants", "users", "jobs", "alembic_version", "tenant_invites"}
 
 
 @pytest.fixture(scope="module")

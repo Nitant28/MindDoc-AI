@@ -49,14 +49,13 @@ flowchart LR
 ## Current limitations (from the independent audit)
 
 Read `docs/audit/CURRENT_STATE_AUDIT.md` before demoing. In short:
-- The claim verifier (v2) catches wrong numbers, scales, dates, periods and party names. It only hints at flipped
-  negation or swapped parties. On a small held-out test set it caught 68% of planted errors vs 20% for v1
+- The claim verifier (v3.1) recomputes figures and checks money direction. On a fresh synthetic held-out set it
+  caught 74% of planted errors and wrongly flagged 21% of correct sentences
   (`benchmarks/reports/HALLUCINATION_BENCHMARK.md`).
 - Confidence is an uncalibrated weighted score.
-- PII is detected but not redacted.
+- PII is detected; report disclosure copies withhold third parties' personal data, but stored documents are not
+  redacted.
 - Prompt-injection defence is pattern-based.
-- Ingestion is synchronous.
-- PyMuPDF is AGPL-3.0.
 
 The fixes are planned in `docs/IMPLEMENTATION_BACKLOG.md`.
 

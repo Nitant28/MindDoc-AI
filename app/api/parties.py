@@ -9,21 +9,15 @@ from sqlalchemy.orm import Session
 from app.api.deps import enforce_rate, get_current_user
 from app.core.security import query_limiter
 from app.database.models import Case, get_db
+from app.cases import access
 from app.identity import service
-from app.services.ingestion import ensure_default_case
 
 router = APIRouter()
 
 
-def _case(db: Session, user, case_id: Optional[int]) -> Case:
-    if case_id is None:
-        case = ensure_default_case(db, user.tenant_id)
-        db.commit()
-        return case
-    case = db.query(Case).filter(Case.id == case_id, Case.tenant_id == user.tenant_id).first()
-    if case is None:
-        raise HTTPException(status_code=404, detail="Case not found")
-    return case
+def _case(db: Session, user, case_id: Optional[int], need: str = "viewer") -> Case:
+    """The case if the caller holds `need` in it (ADR-0012: non-members get 404, too low a role 403)."""
+    return access.require_case(db, user, case_id, need)
 
 
 @router.post("/resolve")
@@ -31,7 +25,7 @@ def resolve_parties(case_id: Optional[int] = None, db: Session = Depends(get_db)
     """Build party records from the case's statement transactions and run resolution. Automatic merges are recorded
     as identity events with their evidence; uncertain pairs go to the review queue. Human decisions are respected."""
     enforce_rate(query_limiter, user)
-    case = _case(db, user, case_id)
+    case = _case(db, user, case_id, "analyst")
     return {"case_id": case.id, **service.run_resolution(db, user.tenant_id, case.id, user.id)}
 
 
@@ -61,7 +55,7 @@ class Decision(BaseModel):
 @router.post("/reviews/{review_id}")
 def decide(review_id: int, body: Decision, case_id: Optional[int] = None, db: Session = Depends(get_db),
            user=Depends(get_current_user)):
-    case = _case(db, user, case_id)
+    case = _case(db, user, case_id, "analyst")
     try:
         r = service.decide_review(db, user.tenant_id, case.id, review_id, body.decision, body.reason, user.id,
                                   body.override_conflict)
@@ -82,7 +76,7 @@ class MergeBody(BaseModel):
 @router.post("/merge")
 def merge(body: MergeBody, case_id: Optional[int] = None, db: Session = Depends(get_db),
           user=Depends(get_current_user)):
-    case = _case(db, user, case_id)
+    case = _case(db, user, case_id, "analyst")
     try:
         ev = service.merge(db, user.tenant_id, case.id, body.a_party_id, body.b_party_id, body.reason, user.id,
                            body.override_conflict)
@@ -101,7 +95,7 @@ class UnmergeBody(BaseModel):
 @router.post("/unmerge")
 def unmerge(body: UnmergeBody, case_id: Optional[int] = None, db: Session = Depends(get_db),
             user=Depends(get_current_user)):
-    case = _case(db, user, case_id)
+    case = _case(db, user, case_id, "analyst")
     try:
         out = service.unmerge(db, user.tenant_id, case.id, body.event_id, body.reason, user.id)
     except service.IdentityError as e:

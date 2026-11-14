@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-from app.api import auth, chat, documents, findings, intel, parties, vision
+from app.api import auth, cases, chat, documents, findings, intel, parties, team, vision
 from app.core.config import settings
 from app.database.models import Document, SessionLocal, Tenant, create_tables, init_default_tenant
 from app.database.tenancy import set_tenant
@@ -17,7 +17,7 @@ from app.database.tenancy import set_tenant
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stdout)
 logger = logging.getLogger("minddoc")
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 
 def _background_warmup():
@@ -95,6 +95,8 @@ app.include_router(parties.router, prefix="/api/parties", tags=["parties"])
 app.include_router(findings.accounts_router, prefix="/api/accounts", tags=["accounts"])
 app.include_router(findings.findings_router, prefix="/api/findings", tags=["findings"])
 app.include_router(findings.reports_router, prefix="/api/reports", tags=["reports"])
+app.include_router(cases.router, prefix="/api/cases", tags=["cases"])
+app.include_router(team.router, prefix="/api/team", tags=["team"])
 
 
 @app.get("/api/health")

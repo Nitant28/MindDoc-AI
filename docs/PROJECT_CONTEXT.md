@@ -36,7 +36,7 @@ India, built on a claim-centric evidence graph (§12).
 | Backend | Python 3.11, FastAPI, Uvicorn, SQLAlchemy 2, Pydantic Settings, python-jose (JWT), httpx |
 | Database | SQLite (WAL) by default; any SQLAlchemy URL. Schema is created and extended automatically on start; no Alembic yet |
 | Search index | in-memory NumPy index per workspace (dense vectors + BM25), rebuilt lazily from the DB |
-| Document parsing | PyMuPDF (AGPL-3.0, to be replaced), pdfplumber (fallback), python-docx, Pillow |
+| Document parsing | pypdfium2 (Apache-2.0/BSD: text layer, rendering, highlight search), pdfplumber (MIT: ruled tables, statement word boxes), python-docx, Pillow. PyMuPDF (AGPL) was removed on 2026-11-14 |
 | Computer vision | OpenCV (headless), Tesseract via pytesseract, EasyOCR (optional ML extra) |
 | ML | NumPy, scikit-learn (TF-IDF, K-Means), sentence-transformers (optional): `all-MiniLM-L6-v2` embeddings and the `ms-marco-MiniLM-L-6-v2` cross-encoder |
 | LLMs | one plain-HTTP gateway for Anthropic, OpenAI (and compatible), OpenRouter, Gemini, NVIDIA NIM, DeepSeek, Ollama |
@@ -108,13 +108,14 @@ poor.
 with `find_spec` and loaded lazily, so it doesn't slow startup.
 
 **Per-page routing for PDFs.**
-- A page with a usable text layer uses it, and PyMuPDF `find_tables()` turns its tables into Markdown.
-- Otherwise the page is rendered and sent through CV + OCR. Render zoom is capped by `MAX_IMAGE_PIXELS`.
-- pdfplumber is the fallback parser.
+- A page with a usable text layer uses it (pypdfium2), and pdfplumber's ruled-table finder turns its tables into
+  Markdown.
+- Otherwise the page is rendered (pypdfium2) and sent through CV + OCR. Render zoom is capped by `MAX_IMAGE_PIXELS`.
+- A PDF that pdfium cannot open is rejected as unreadable at upload.
 
 **Vision-LLM captions.** Figures and photos get a description from a multimodal LLM when one is configured.
 
-**Pixel-level provenance** (`app/vision/highlight.py`). The cited passage is located on the PDF page with PyMuPDF
+**Pixel-level provenance** (`app/vision/highlight.py`). The cited passage is located on the PDF page with pypdfium2
 text search, and the page is rendered with highlight boxes (`GET /api/documents/{id}/page/{n}/image`, header
 `X-Highlight-Boxes`). Limitation: this only works for PDFs with a text layer. Scanned pages have no word boxes
 stored yet.
@@ -257,6 +258,31 @@ Passages are retrieved per field, and an LLM fills a JSON object, with `null` wh
   evidence since issue, and the application cannot edit them. MindDoc never writes or approves findings and never
   labels fraud.
 
+### 4.3b Organisations, cases and roles (ADR-0012) — `app/cases/access.py`, `app/api/cases.py`, `app/api/team.py`
+
+- **Organisation = tenant.** Registering without an invitation creates an organisation of one (its admin). An admin
+  creates single-use invitation links (optionally locked to one email; 7-day default expiry; revocable); only the
+  token's SHA-256 is stored. Admins can make members admins and deactivate them (access ends at once).
+- **Cases.** The General case is open to every member (admins as lead, others as analysts). Any other case is visible
+  only to its members, with roles viewer < analyst < reviewer < lead; non-members get 404.
+- **Documents follow their cases.** Visible if any of its cases is; changed or deleted only with analyst rights in
+  every case holding it; never dropped from its last case (it would fall back to General). Chat, search, the
+  knowledge graph, timeline, overview and the retrieval evaluation use only documents the caller can see.
+- **Who decides.** Analysts draft and propose findings; reviewers approve or reject them and issue reports and
+  disclosures; leads manage members. Membership changes are written to the hash-chained audit trail.
+
+### 4.3c Robustness, disclosure copies and evidence bundles (R8) — `app/findings/fragility.py`, `disclosure.py`, `bundle.py`
+
+- **Fragility.** For each finding: which independent sources it stands or falls on. Copies of one statement count
+  once; the counterparty's statement recording the same transfer corroborates a claim. κ = the fewest sources whose
+  removal leaves a supporting claim without evidence (exact, because analyst findings have exact lineage). κ = 1 is
+  shown as "rests on one source". Frozen into reports.
+- **Disclosure copies.** A report copy for a recipient (e.g. the borrower under *Amit Iron*, 2026) with third
+  parties' personal data withheld and each withheld item listed with its reason. Organisations and chosen subjects
+  stay visible. The frozen report is never changed; the copy has its own SHA-256 and names the report's.
+- **Evidence bundle.** A zip with the report (or copy) as hashed, the cited row images, sources and a SHA-256
+  manifest. Disclosure bundles black out withheld text on the images and leave out any image they cannot redact.
+
 ### 4.4 Responsible AI and security — `app/ai/guardrails.py`, `app/core/security.py`, `app/api/deps.py`
 
 **PII detection** covers email, phone, credit card (Luhn-validated), SSN, IBAN, IP address, India PAN and Aadhaar,
@@ -344,7 +370,19 @@ The PLANNED schema (Source, Page, Region, Claim, Evidence, ResolutionDecision, A
 **vision**
 - `POST analyze`: the Vision Lab
 
-**Health:** `GET /api/health` returns `{"version": "2.1.0"}`.
+**cases and team (ADR-0012)**
+- `GET/POST cases`, `GET/PUT cases/{id}`, members `POST/PUT/DELETE cases/{id}/members[/{user}]`, documents
+  `POST/DELETE cases/{id}/documents[/{doc}]`
+- `GET team/members`, `PUT team/members/{id}`, `GET/POST team/invites`, `DELETE team/invites/{id}`;
+  `POST auth/register` accepts `invite_token`
+
+**parties, accounts, findings, reports** (all take `case_id`; default: General)
+- parties: resolve, list, detail, reviews, merge/unmerge, graph, claims; accounts: list, set holder
+- findings: list, create, get (with lineage and robustness), revise, refresh
+- reports: list, issue, get, export; `GET {id}/bundle[?disclosure_id=]`; disclosures: `GET {id}/disclosure-parties`,
+  `GET/POST {id}/disclosures`, `GET {id}/disclosures/{d}/export`
+
+**Health:** `GET /api/health` returns `{"version": "2.2.0"}`.
 
 Full request and response shapes are in `docs/API_CONTRACT.md`.
 
@@ -477,10 +515,12 @@ once):
    memory. Rate limits aren't shared across replicas. Retrieval has only a synthetic benchmark (no human-written
    questions), and no HNSW index or scale test exists.
 5. **Scanned PDFs have no stored word boxes**, so citation highlights only work on PDFs with a text layer.
-6. **PyMuPDF is AGPL-3.0.** It must be replaced before any closed-source distribution. EasyOCR is stagnant.
+6. **PyMuPDF was removed (2026-11-14).** The swap was checked only on clean generated PDFs (identical text); real
+   PDFs are unmeasured. EasyOCR is stagnant.
 7. **PII is detected, not redacted.** Prompt-injection defence is pattern-based.
 8. **The live site has no persistence** (free plan). `JWT_SECRET` and CORS must be set in the Render dashboard.
-9. **v1 users share the `default` tenant.** There's no RBAC, SSO or organisation workspaces.
+9. **Organisations and case roles exist (ADR-0012), but no SSO.** Invitations are links an admin passes on (MindDoc
+   sends no email). v1 users still share the `default` tenant.
 10. **Entity resolution is name normalisation only.** There's no identifier validation (GSTIN, PAN, CIN) and no
     human-reviewed merges.
 11. **No synthetic case generator or document benchmarks yet.** That's MindDoc-Synth, backlog Phase 2.

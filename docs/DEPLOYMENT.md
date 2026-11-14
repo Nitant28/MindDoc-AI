@@ -98,3 +98,26 @@ Without them, page-highlight citations and re-processing are unavailable for the
   non-reversible migration must say so in its notes and requires a fresh backup before deploying.
 - Jobs survive restarts: queued jobs stay queued; running jobs whose worker died are re-queued after their lease
   (5 minutes) expires.
+
+## 6. Release log
+
+**2026-11-13: `main` = `2ceb33c`** (merge of `consolidate/v2-base`, R0–R6 and the R5 leftovers; owner-approved).
+- **Render** (`minddoc-ai-2.onrender.com`, Docker, free plan, SQLite) was live with the new build about 2 minutes
+  after the push.
+  - `/api/health` returns 200.
+  - Every new route is present (accounts, findings, reports, claims, statements, PostgreSQL search).
+  - Protected routes answer 401 without a token; no errors.
+  - The single-page app and `/findings` are served.
+  - The health endpoint still reports version "2.1.0": the version string was not bumped.
+- **Vercel production:** `mind-doc-ai`, `mind-doc-ai-lxft` and `mind-doc-ai-msb6` serve the frontend and proxy
+  `/api` to the new Render build (health 200, `/api/findings` 401).
+  - `mind-doc-ai-ny1m` builds but returns 500 `FUNCTION_INVOCATION_FAILED` at runtime. Its project settings evidently
+    run code as a serverless function rather than serving `frontend/dist`. It needs a settings fix in Vercel, or
+    deleting as a duplicate (owner action; not reachable with the assistant's access).
+- **Not done:** no production account was created and no data was uploaded; signed-in flows were tested locally and
+  in CI only.
+- **Known limits of this deployment:**
+  - The free plan resets the SQLite database and uploads on every deploy, including this one.
+  - `ACCOUNT_HASH_KEY` is unset, so it is derived from the Render-generated `JWT_SECRET`.
+- **Rollback:** redeploy `f11a241` (the previous `main`) from the Render dashboard. On SQLite the schema is recreated,
+  so there is no migration to reverse.

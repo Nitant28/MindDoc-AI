@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.ai import rag
 from app.api.deps import enforce_rate, get_current_user
+from app.cases import access
 from app.core.security import query_limiter
 from app.database.models import ChatMessage, ChatSession, SavedItem, SessionLocal, get_db
 from app.database.tenancy import set_tenant
@@ -22,6 +23,7 @@ class QueryRequest(BaseModel):
     session_id: Optional[int] = None
     document_id: Optional[int] = None
     document_ids: Optional[list[int]] = None
+    case_id: Optional[int] = None  # search only this case's documents
     mode: str = "fast"
 
 
@@ -30,6 +32,17 @@ def _doc_ids(req: QueryRequest) -> list[int]:
     if req.document_id:
         ids.append(req.document_id)
     return list(dict.fromkeys(ids))
+
+
+def _scope(db: Session, user, req: QueryRequest) -> list[int]:
+    """Documents this question may search: the chosen case or documents, minus any the caller may not see
+    (ADR-0012). An empty result means "no restriction"; nothing searchable is a 404."""
+    ids = access.scoped_document_ids(db, user, req.case_id, _doc_ids(req))
+    if ids is None:
+        return []
+    if not ids:
+        raise HTTPException(status_code=404, detail="No documents you can search in this scope")
+    return ids
 
 
 def _session(db: Session, user, req: QueryRequest) -> ChatSession:
@@ -71,8 +84,9 @@ def _validate(req: QueryRequest):
 def query_documents(req: QueryRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     enforce_rate(query_limiter, user)
     _validate(req)
+    scope = _scope(db, user, req)
     session = _session(db, user, req)
-    final = rag.answer(db, tenant_id=user.tenant_id, user_id=user.id, query=req.query, document_ids=_doc_ids(req),
+    final = rag.answer(db, tenant_id=user.tenant_id, user_id=user.id, query=req.query, document_ids=scope,
                        mode=req.mode, history=_history(db, session.id), session_id=session.id)
     if final.get("type") == "error":
         raise HTTPException(status_code=404, detail=final.get("detail"))
@@ -87,10 +101,11 @@ def _sse(obj: dict) -> str:
 
 
 @router.post("/stream")
-def stream(req: QueryRequest, user=Depends(get_current_user)):
+def stream(req: QueryRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     enforce_rate(query_limiter, user)
     _validate(req)
     tenant_id, user_id = user.tenant_id, user.id
+    scope = _scope(db, user, req)
 
     def gen():
         db = SessionLocal()  # own session: lives as long as the stream
@@ -101,7 +116,7 @@ def stream(req: QueryRequest, user=Depends(get_current_user)):
             session = _session(db, _U, req)
             yield _sse({"type": "session", "session_id": session.id})
             for ev in rag.run(db, tenant_id=tenant_id, user_id=user_id, query=req.query,
-                              document_ids=_doc_ids(req), mode=req.mode, history=_history(db, session.id),
+                              document_ids=scope, mode=req.mode, history=_history(db, session.id),
                               session_id=session.id, stream=True):
                 if ev["type"] == "final":
                     ev["session_id"] = session.id
