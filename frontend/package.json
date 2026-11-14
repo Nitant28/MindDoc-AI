@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@babel/helper-validator-identifier": "^7.28.5",
+    "@fontsource-variable/inter": "^5.2.5",
     "axios": "^1.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

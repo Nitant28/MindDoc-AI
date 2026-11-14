@@ -4,27 +4,28 @@ import { cx } from '../../lib/cx';
 import { Icon, type IconName } from './Icon';
 import { Spinner } from './Spinner';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'danger-ghost';
+export type ButtonVariant = 'primary' | 'secondary' | 'tonal' | 'ghost' | 'danger' | 'danger-ghost';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'icon' | 'icon-sm';
 
 const BASE =
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors select-none disabled:pointer-events-none disabled:opacity-50';
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium tracking-[0.01em] transition-[background-color,border-color,color,box-shadow] duration-150 select-none active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40';
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-accent-fg shadow-sm hover:bg-accent-hover',
-  secondary: 'border border-line bg-surface text-fg shadow-sm hover:bg-elevated hover:border-line-strong',
-  ghost: 'text-muted hover:bg-elevated hover:text-fg',
-  danger: 'bg-rose-600 text-white shadow-sm hover:bg-rose-500',
+  primary: 'bg-accent text-accent-fg hover:bg-accent-hover hover:elevation-1',
+  secondary: 'border border-line-strong bg-transparent text-accent-soft hover:bg-accent/[0.08] hover:border-line-strong',
+  tonal: 'bg-accent-container text-accent-on-container hover:elevation-1',
+  ghost: 'text-muted hover:bg-fg/[0.06] hover:text-fg',
+  danger: 'bg-rose-600 text-white hover:bg-rose-500 hover:elevation-1',
   'danger-ghost': 'text-rose-600 hover:bg-rose-500/10 dark:text-rose-400',
 };
 
 const SIZES: Record<ButtonSize, string> = {
-  xs: 'h-7 px-2 text-xs',
-  sm: 'h-8 px-3 text-sm',
-  md: 'h-9 px-4 text-sm',
-  lg: 'h-11 px-5 text-sm',
-  icon: 'h-9 w-9',
-  'icon-sm': 'h-7 w-7 rounded-md',
+  xs: 'h-7 px-3 text-xs',
+  sm: 'h-8 px-3.5 text-[13px]',
+  md: 'h-10 px-5 text-sm',
+  lg: 'h-12 px-6 text-[15px]',
+  icon: 'h-10 w-10',
+  'icon-sm': 'h-8 w-8',
 };
 
 const ICON_SIZE: Record<ButtonSize, string> = {

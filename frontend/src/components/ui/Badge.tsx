@@ -4,8 +4,8 @@ import type { Tone } from '../../lib/format';
 import { Icon, type IconName } from './Icon';
 
 export const TONE_BADGE: Record<Tone, string> = {
-  neutral: 'bg-elevated text-muted ring-line',
-  accent: 'bg-accent/10 text-accent-soft ring-accent/25',
+  neutral: 'bg-elevated text-muted ring-transparent',
+  accent: 'bg-accent-container text-accent-on-container ring-transparent',
   success: 'bg-emerald-500/10 text-emerald-700 ring-emerald-500/25 dark:text-emerald-400',
   warning: 'bg-amber-500/10 text-amber-700 ring-amber-500/25 dark:text-amber-400',
   danger: 'bg-rose-500/10 text-rose-700 ring-rose-500/25 dark:text-rose-400',
@@ -45,8 +45,8 @@ export function Badge({ tone = 'neutral', children, dot, icon, className, title,
     <span
       title={title}
       className={cx(
-        'inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-md font-medium ring-1 ring-inset',
-        size === 'sm' ? 'px-1.5 py-0.5 text-[11px] leading-4' : 'px-2 py-1 text-xs',
+        'inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-full font-medium ring-1 ring-inset',
+        size === 'sm' ? 'px-2 py-0.5 text-[11px] leading-4' : 'px-2.5 py-1 text-xs',
         TONE_BADGE[tone],
         className,
       )}

@@ -15,6 +15,7 @@ import { useToast } from '../components/ui/Toast';
 import { formatMinor } from '../lib/format';
 import { useTheme } from '../lib/theme';
 import { useTitle } from '../lib/useTitle';
+import RelatedPartyToggle from '../components/RelatedPartyToggle';
 import type { ClaimView, FlowGraph, GraphEdge, GraphNode, PartyDetail, PartyReviewItem, PartySummary, ResolveResult } from '../types';
 
 type Tab = 'review' | 'parties' | 'graph';
@@ -573,6 +574,7 @@ export default function Parties() {
       >
         {detail ? (
           <div className="space-y-4 p-4 text-xs sm:p-5">
+            <RelatedPartyToggle key={detail.party_id} partyId={detail.party_id} reason={detail.tags?.related} />
             <Identifiers ids={detail.identifiers} />
             {detail.accounts?.length ? (
               <p className="text-muted">

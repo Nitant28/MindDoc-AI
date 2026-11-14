@@ -21,6 +21,7 @@ const Timeline = lazy(() => import('./pages/Timeline'));
 const Parties = lazy(() => import('./pages/Parties'));
 const Findings = lazy(() => import('./pages/Findings'));
 const Cases = lazy(() => import('./pages/Cases'));
+const Discoveries = lazy(() => import('./pages/Discoveries'));
 
 /** Protected shell: no token → /login (remembering where the user was going). */
 function RequireAuth() {
@@ -73,6 +74,7 @@ export default function App() {
                 <Route path="/parties" element={<Parties />} />
                 <Route path="/findings" element={<Findings />} />
                 <Route path="/cases" element={<Cases />} />
+                <Route path="/discoveries" element={<Discoveries />} />
                 <Route path="/vision" element={<Vision />} />
                 <Route path="/system" element={<System />} />
                 <Route path="/settings" element={<Settings />} />

@@ -252,7 +252,7 @@ export default function Cases() {
         title="Cases"
         description="Each engagement is a case with its own documents, parties, findings and reports. Only its members can see it."
       />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <div className="space-y-4">
           <Card>
             <CardBody>

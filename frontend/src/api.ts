@@ -46,6 +46,10 @@ import type {
   CaseDetail,
   CaseRole,
   DisclosureParty,
+  DetectorInfo,
+  DiscoveryDetail,
+  DiscoveryList,
+  DiscoveryStatus,
   DisclosureView,
   CaseSummary,
   TeamInvite,
@@ -69,7 +73,7 @@ export function handleUnauthorized(): void {
 }
 
 /** Endpoints that work on one case: the selected case is sent as `case_id` unless the call sets its own. */
-const CASE_SCOPED = ['/parties', '/accounts', '/findings', '/reports', '/documents/list', '/documents/upload', '/documents/import-aa'];
+const CASE_SCOPED = ['/parties', '/accounts', '/findings', '/reports', '/discoveries', '/documents/list', '/documents/upload', '/documents/import-aa'];
 
 export function isCaseScoped(url: string): boolean {
   return CASE_SCOPED.some((p) => url === p || url.startsWith(`${p}/`) || url.startsWith(`${p}?`));
@@ -478,4 +482,23 @@ export const teamApi = {
   invite: (body: { email?: string; tenant_role: TenantRole; days?: number }) =>
     api.post<TeamInvite>('/team/invites', body).then((r) => r.data),
   revoke: (id: number) => api.delete<TeamInvite>(`/team/invites/${id}`).then((r) => r.data),
+};
+
+/** Discovery ledger (R7): detectors over the selected case's transactions. Leads for review, never verdicts. */
+export const discoveriesApi = {
+  detectors: () => api.get<{ version: string; detectors: DetectorInfo[] }>('/discoveries/detectors').then((r) => r.data),
+  run: () =>
+    api
+      .post<{ run_id: number; transactions: number; found: number; new: number; no_longer_detected: number }>('/discoveries/run', null, { timeout: 300_000 })
+      .then((r) => r.data),
+  list: (params: { status?: DiscoveryStatus; detector?: string; include_gone?: boolean } = {}) =>
+    api.get<DiscoveryList>('/discoveries', { params }).then((r) => r.data),
+  get: (id: number) => api.get<DiscoveryDetail>(`/discoveries/${id}`).then((r) => r.data),
+  dispose: (id: number, status: DiscoveryStatus, reason: string) =>
+    api.post<DiscoveryDetail>(`/discoveries/${id}/disposition`, { status, reason }).then((r) => r.data),
+};
+
+export const partyTagsApi = {
+  setRelated: (partyId: number, related: boolean, reason: string) =>
+    api.put<{ party_id: number; tag: string; on: boolean }>(`/parties/${partyId}/tags`, { related, reason }).then((r) => r.data),
 };
