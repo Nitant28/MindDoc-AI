@@ -251,5 +251,17 @@ caller is not a member of answers **404**; a role that is too low answers **403*
   subjects[], withheld[] {label, kind, reason, occurrences, values[]}, intact}`; `values` is the issuer-only log
 - `GET /reports/{id}/disclosures` (reviewer) · `GET /reports/{id}/disclosures/{d}/export` → the copy as hashed
 
+## Discoveries (R7)
+
+All take `?case_id=` (default: General). A discovery is a lead for review, never a verdict.
+- `GET /discoveries/detectors` → version and each detector's id, title, description, default parameters and rule-out list
+- `POST /discoveries/run` (analyst) → `{run_id, transactions, found, new, no_longer_detected}`; resolves parties first
+- `GET /discoveries?status=open|confirmed|dismissed&detector=&include_gone=` → leads, counts by detector and status,
+  last run
+- `GET /discoveries/{id}` → lead with `transactions[]` (date, amount, direction, narration, page, row, box, claim_id),
+  `details` (e.g. the money path) and `rule_out[]`
+- `POST /discoveries/{id}/disposition {status, reason}` (analyst; a reason is required to pursue or dismiss)
+- `PUT /parties/{party_id}/tags {related, reason}` (analyst): mark a party as related to the subject
+
 ## Errors
 Standard FastAPI: `{ "detail": "message" }` with 4xx/5xx status. 401 → frontend clears token and redirects to `/login`.

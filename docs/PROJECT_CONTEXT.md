@@ -271,6 +271,23 @@ Passages are retrieved per field, and an LLM fills a JSON object, with `null` wh
 - **Who decides.** Analysts draft and propose findings; reviewers approve or reject them and issue reports and
   disclosures; leads manage members. Membership changes are written to the hash-chained audit trail.
 
+### 4.3d Discoveries (R7) — `app/discovery/detectors.py`, `service.py`, `benchmarks/discovery/`
+
+- **Detectors** over the case's statement rows (pure functions, versioned, parameters stored with every run):
+  - end-use trail after a loan disbursement to group or related parties;
+  - round trips through 1–3 parties;
+  - cash structuring below a threshold;
+  - pass-through of credits;
+  - duplicate payments;
+  - quarter-end window dressing.
+- **Leads, not verdicts.** Each lead lists its rows (with page regions and claim ids) and the ordinary explanations to
+  rule out. Analysts pursue or dismiss with a reason, and can draft a finding from a lead.
+- **Ledger.** Stable keys; dispositions survive re-runs; leads no longer found are kept and marked.
+- **Measured** on FB-Synth v0 (test scored once):
+  - recall 0.976;
+  - 1.38 false flags per 10 benign look-alikes (target ≤ 1 not met).
+- The M2 market gate was lifted by the owner without a pilot; the market is still not validated.
+
 ### 4.3c Robustness, disclosure copies and evidence bundles (R8) — `app/findings/fragility.py`, `disclosure.py`, `bundle.py`
 
 - **Fragility.** For each finding: which independent sources it stands or falls on. Copies of one statement count
