@@ -11,13 +11,8 @@ from app.services import document_service
 
 
 def _pdf(pages: int) -> bytes:
-    import fitz
-    doc = fitz.open()
-    for i in range(pages):
-        doc.new_page().insert_text((72, 72), f"Page {i + 1} of a test document with enough text to parse.")
-    data = doc.tobytes()
-    doc.close()
-    return data
+    from tests.pdfgen import make_pdf
+    return make_pdf([[f"Page {i + 1} of a test document with enough text to parse."] for i in range(pages)])
 
 
 def test_pdf_page_cap(monkeypatch):

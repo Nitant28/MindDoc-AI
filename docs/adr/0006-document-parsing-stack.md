@@ -33,3 +33,11 @@ Source: `docs/review/C_ADR_REVIEW.md`.
   confirm), Surya/Marker weights (revenue-restricted / non-commercial).
 - **Order:** replace the PyMuPDF renderer and highlighter first, then text extraction. Any component becomes default for a
   document class only after it beats the slim baseline on StatementBench / DocBench.
+
+## Implementation note 2026-11-14
+
+PyMuPDF is no longer a dependency of the shipped product (`requirements.txt`, Docker image). Text layer, page and image
+counts, rendering and the passage highlighter use pypdfium2; ruled tables use pdfplumber. Text comes from pdfium's text
+layer rather than pdfminer: both are licence-clean and pdfium is faster. DocBench does not exist yet, so the regression
+check was the text-layer comparison on the 60 StatementBench PDFs (identical tokens and order on all 94 pages) plus the
+test suite; real-world PDFs are not measured. Test PDFs are generated with reportlab (BSD, dev only).

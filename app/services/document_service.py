@@ -1,8 +1,8 @@
 """Multimodal document parsing.
 
-PDF  → PyMuPDF text layer per page; pages without a usable text layer are rendered at 2x and sent
-       through the computer-vision OCR pipeline; native tables are converted to Markdown; embedded
-       images are counted as figures (and the largest one can be captioned by a vision LLM).
+PDF  → pypdfium2 text layer per page (Apache-2.0/BSD, ADR-0006; PyMuPDF is AGPL and no longer used); pages
+       without a usable text layer are rendered at up to 2x and sent through the computer-vision OCR pipeline;
+       ruled tables found by pdfplumber (MIT) are converted to Markdown; embedded images are counted as figures.
 DOCX → paragraphs (with heading levels) + tables as Markdown.
 IMG  → CV pipeline (quality, deskew, layout, OCR) + optional vision-LLM caption.
 TXT/MD → decoded text.
@@ -24,10 +24,11 @@ from app.vision import cv
 logger = logging.getLogger(__name__)
 
 try:
-    import fitz  # PyMuPDF
-    FITZ_AVAILABLE = True
-except ImportError:
-    FITZ_AVAILABLE = False
+    import pypdfium2 as pdfium
+    import pypdfium2.raw as pdfium_c
+    PDFIUM_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    PDFIUM_AVAILABLE = False
 
 try:
     import pdfplumber
@@ -89,53 +90,79 @@ def _check_pages(n: int) -> None:
         raise ValueError(f"PDF has {n} pages; the limit is {settings.max_pdf_pages}. Split the file and upload the parts.")
 
 
-def parse_pdf(data: bytes) -> ParsedDocument:
-    pages: list[Page] = []
-    if FITZ_AVAILABLE:
-        doc = fitz.open(stream=data, filetype="pdf")
+def _page_text(page) -> str:
+    tp = page.get_textpage()
+    try:
+        text = tp.get_text_bounded() or ""
+    finally:
+        tp.close()
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "").replace("\ufffe", "")
+
+
+def _page_tables(plumber_pdf, index: int) -> list[str]:
+    """Ruled tables on one page as Markdown (pdfplumber's line strategy, like the previous table finder)."""
+    if plumber_pdf is None:
+        return []
+    out = []
+    try:
+        page = plumber_pdf.pages[index]
         try:
-            _check_pages(len(doc))
-            for i, page in enumerate(doc, start=1):
-                text = page.get_text("text") or ""
-                n_images = len(page.get_images(full=True))
-                tables_md = []
-                try:
-                    for t in page.find_tables().tables:
-                        md = _table_to_md(t.extract())
-                        if md:
-                            tables_md.append(md)
-                except Exception:
-                    pass
+            for t in page.find_tables():
+                md = _table_to_md(t.extract())
+                if md:
+                    out.append(md)
+        finally:
+            page.close()
+    except Exception:  # a table the parser cannot read never fails the page
+        logger.debug("table extraction failed on page %s", index + 1, exc_info=True)
+    return out
+
+
+def parse_pdf(data: bytes) -> ParsedDocument:
+    if not PDFIUM_AVAILABLE:
+        raise RuntimeError("No PDF backend installed (pip install pypdfium2)")
+    pages: list[Page] = []
+    pdf = pdfium.PdfDocument(data)
+    plumber_pdf = None
+    try:
+        _check_pages(len(pdf))
+        if PDFPLUMBER_AVAILABLE:
+            plumber_pdf = pdfplumber.open(io.BytesIO(data))
+        for i in range(len(pdf)):
+            page = pdf[i]
+            try:
+                text = _page_text(page)
+                n_images = sum(1 for _ in page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_IMAGE], max_depth=2))
                 if len(text.strip()) >= MIN_TEXT_CHARS:
+                    tables_md = _page_tables(plumber_pdf, i)
                     if tables_md:
                         text += "\n\n[Tables]\n" + "\n\n".join(tables_md)
                     report = {"method": "text", "ocr_confidence": None, "blur_score": None, "quality": "good",
                               "quality_score": 1.0, "skew_angle": 0.0, "tables_detected": len(tables_md),
                               "figures_detected": n_images}
                 else:  # scanned / image-only page → computer vision OCR
-                    area = max(1.0, page.rect.width * page.rect.height)  # cap render size for huge page boxes
+                    w, h = page.get_size()
+                    area = max(1.0, w * h)  # cap render size for huge page boxes
                     zoom = min(2.0, (settings.max_image_pixels / area) ** 0.5)
-                    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
-                    img = PILImage.open(io.BytesIO(pix.tobytes("png")))
+                    img = page.render(scale=zoom).to_pil()
                     ocr_text, report = cv.ocr_page_image(img)
-                    report["tables_detected"] = max(report["tables_detected"], len(tables_md))
                     text = ocr_text or text
-                pages.append(Page(i, text.strip(), report))
-        finally:
-            doc.close()
-    elif PDFPLUMBER_AVAILABLE:
-        with pdfplumber.open(io.BytesIO(data)) as pdf:
-            _check_pages(len(pdf.pages))
-            for i, page in enumerate(pdf.pages, start=1):
-                text = page.extract_text() or ""
-                if len(text.strip()) < MIN_TEXT_CHARS:
-                    text, report = cv.ocr_page_image(page.to_image(resolution=200).original)
-                else:
-                    report = {"method": "text", "quality": "good", "quality_score": 1.0}
-                pages.append(Page(i, text.strip(), report))
-    else:
-        raise RuntimeError("No PDF backend installed (pip install pymupdf)")
+            finally:
+                page.close()
+            pages.append(Page(i + 1, text.strip(), report))
+    finally:
+        if plumber_pdf is not None:
+            plumber_pdf.close()
+        pdf.close()
     return ParsedDocument(pages, "pdf")
+
+
+def pdf_page_count(data: bytes) -> int:
+    pdf = pdfium.PdfDocument(data)
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
 
 
 def validate_upload(data: bytes, filename: str) -> None:
@@ -146,12 +173,7 @@ def validate_upload(data: bytes, filename: str) -> None:
     name = filename.lower()
     if name.endswith(".pdf"):
         try:
-            if FITZ_AVAILABLE:
-                with fitz.open(stream=data, filetype="pdf") as doc:
-                    _check_pages(len(doc))
-            elif PDFPLUMBER_AVAILABLE:
-                with pdfplumber.open(io.BytesIO(data)) as pdf:
-                    _check_pages(len(pdf.pages))
+            _check_pages(pdf_page_count(data))
         except ValueError:
             raise
         except Exception as e:
