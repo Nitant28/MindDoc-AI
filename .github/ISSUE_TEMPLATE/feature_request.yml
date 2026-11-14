@@ -1,0 +1,21 @@
+name: Feature request
+description: Propose a capability or an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: Who needs this, in which step of their work, and what they do today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What MindDoc should do. How would we measure that it works?
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and provenance
+      description: Which documents or rows would back the result, and how would a reviewer check it?
