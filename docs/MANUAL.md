@@ -74,6 +74,25 @@ Summary, type + confidence, reading stats, weighted keywords, extracted entities
 - Follow-up questions keep context ("what about its renewal terms?").
 - Ask "summarise this document" to get coverage-based summaries instead of similarity search.
 
+### Cases and your organisation
+- **Settings → Organisation:** admins create invitation links (optionally for one email address) and pass them on
+  themselves; MindDoc sends no email. The colleague opens the link and registers. Admins can change roles and
+  deactivate members.
+- **Cases:** create a case for each engagement; you become its lead. Add members by email with a role: viewer (read),
+  analyst (upload, resolve parties, draft and propose findings), reviewer (also approve or reject findings, issue
+  reports and disclosure copies) or lead (also members and settings). Only members see a case.
+- The **case switcher** in the header chooses the case that Documents, Parties, Findings and Chat work in. The
+  General case is open to the whole organisation.
+
+### Findings, reports and disclosure copies
+- A finding's page shows its **robustness**: which independent sources it rests on. "Rests on one source" means
+  removing that one statement (or its copies) leaves a supporting claim without evidence.
+- A report can be downloaded as its frozen JSON or as an **evidence bundle** (zip with row images, sources and a
+  SHA-256 manifest).
+- **Disclosure copy:** for a recipient such as the borrower. Tick the subjects of the report (account holders are
+  pre-ticked); other people's names and identifiers are withheld and listed with reasons. Check the withheld list
+  before sending: whether it is legally sufficient is your decision.
+
 ### Knowledge Graph
 Entities (people, organisations, places, dates, money, laws…) and their relationships across all documents.
 Filter by type, search, drag nodes, click for details and linked documents. Filter to one document with

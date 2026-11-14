@@ -222,5 +222,34 @@ Dates/deadlines found across documents, sorted ascending.
 
 ---
 
+## Cases and organisation (ADR-0012)
+
+Case-scoped endpoints (`/parties`, `/accounts`, `/findings`, `/reports`, `/documents/list`, `/documents/upload`,
+`/documents/import-aa`) take `?case_id=` (default: the General case). Chat takes `case_id` in the body. A case the
+caller is not a member of answers **404**; a role that is too low answers **403**.
+
+- `GET /cases` → `[{id, title, status, is_default, my_role, documents, members}]`
+- `POST /cases {title}` → the caller becomes lead
+- `GET /cases/{id}` → summary + `members[] {user_id, email, role, active}` + `document_list[]`
+- `PUT /cases/{id} {title?, status?: open|closed}` (lead; the General case cannot be closed)
+- `POST /cases/{id}/members {email, role}` · `PUT /cases/{id}/members/{user_id} {role}` · `DELETE …` (lead; a case keeps one lead)
+- `POST /cases/{id}/documents {document_id}` (analyst) · `DELETE /cases/{id}/documents/{doc_id}` (analyst; 409 if it is the document's last case)
+- `GET /team/members` → `{me, is_admin, members[] {id, email, tenant_role, active}}`
+- `PUT /team/members/{id} {tenant_role?, is_active?}` (admin; 409 if no active admin would remain)
+- `POST /team/invites {email?, tenant_role: member|admin, days?: 1–30}` (admin) → invite **with `token` (shown once)**
+- `GET /team/invites` (admin; never returns tokens) · `DELETE /team/invites/{id}` (revoke)
+- `POST /auth/register {email, password, invite_token?}`: with a valid token the account joins that organisation
+
+## Reports: robustness, disclosures and evidence bundles (R8)
+
+- `GET /findings/{id}` adds `robustness {method, bound_type, k_fragility, loso_score, essential_sources[],
+  responsibility{}, sources{label: [{document_id, filename}]}, facts[], contradicting_claims[], notes[]}`; reports
+  issued since R8 freeze it with each finding.
+- `GET /reports/{id}/bundle[?disclosure_id=]` → `application/zip` (`X-Content-SHA256` of the zip)
+- `GET /reports/{id}/disclosure-parties` (reviewer) → `{parties[] {id, name, kind, default_subject}}`
+- `POST /reports/{id}/disclosures {recipient, subject_party_ids?}` (reviewer) → `{id, content_hash, base_hash,
+  subjects[], withheld[] {label, kind, reason, occurrences, values[]}, intact}`; `values` is the issuer-only log
+- `GET /reports/{id}/disclosures` (reviewer) · `GET /reports/{id}/disclosures/{d}/export` → the copy as hashed
+
 ## Errors
 Standard FastAPI: `{ "detail": "message" }` with 4xx/5xx status. 401 → frontend clears token and redirects to `/login`.

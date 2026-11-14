@@ -17,7 +17,7 @@ from app.database.tenancy import set_tenant
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stdout)
 logger = logging.getLogger("minddoc")
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 
 def _background_warmup():
