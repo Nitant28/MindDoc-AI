@@ -618,6 +618,22 @@ class Report(Base):
     issued_by = Column(Integer, ForeignKey("users.id"))
 
 
+class ReportDisclosure(Base):
+    """A copy of a frozen report given to a recipient with third-party personal data withheld (R8). Immutable."""
+    __tablename__ = "report_disclosures"
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), index=True, nullable=False)
+    report_id = Column(Integer, ForeignKey("reports.id", ondelete="CASCADE"), index=True, nullable=False)
+    recipient = Column(String, nullable=False)
+    subjects = Column(Text, nullable=False)                   # JSON: canonical party ids and names
+    withheld_internal = Column(Text, nullable=False)          # JSON: what was withheld, with values (issuer only)
+    content = Column(Text, nullable=False)                    # canonical JSON as disclosed
+    content_hash = Column(String(64), nullable=False)
+    base_hash = Column(String(64), nullable=False)            # SHA-256 of the frozen report
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class ReportFinding(Base):
     __tablename__ = "report_findings"
     id = Column(Integer, primary_key=True)

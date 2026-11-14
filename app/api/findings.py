@@ -1,4 +1,7 @@
-"""Bank accounts, findings and frozen reports for a case (R5; design F §2.3, §4)."""
+"""Bank accounts, findings and frozen reports for a case (R5; design F §2.3, §4); disclosure copies and evidence
+bundles (R8)."""
+import hashlib
+import json
 from datetime import datetime
 from typing import Optional
 
@@ -106,7 +109,9 @@ def get_finding(finding_id: int, case_id: Optional[int] = None, db: Session = De
         f = service.get(db, case.id, finding_id)
     except service.FindingError as e:
         raise _err(e)
-    return {**service.view(db, case.id, f), "history": service.history(db, case.id, f.finding_key)}
+    from app.findings import fragility
+    return {**service.view(db, case.id, f), "history": service.history(db, case.id, f.finding_key),
+            "robustness": fragility.for_finding(db, case.id, f.id)}
 
 
 class ReviseBody(BaseModel):
@@ -197,3 +202,122 @@ def export_report(report_id: int, case_id: Optional[int] = None, db: Session = D
                     headers={"Content-Disposition": f'attachment; filename="minddoc-report-{r.id}.json"',
                              "X-Content-SHA256": r.content_hash})
 
+
+# -------------------------------------------------------------------------------- disclosures and bundles (R8)
+
+class DisclosureBody(BaseModel):
+    recipient: str = Field(min_length=3, max_length=300)
+    subject_party_ids: Optional[list[int]] = Field(default=None, max_length=500)
+
+
+def _report(db: Session, case_id: int, report_id: int):
+    from app.database.models import Report
+    r = db.query(Report).filter(Report.case_id == case_id, Report.id == report_id).first()
+    if r is None:
+        raise HTTPException(status_code=404, detail="report not found")
+    return r
+
+
+def _disclosure_view(d, internal: bool = True) -> dict:
+    out = {"id": d.id, "report_id": d.report_id, "recipient": d.recipient, "created_at": d.created_at.isoformat(),
+           "created_by": d.created_by, "content_hash": d.content_hash, "base_hash": d.base_hash,
+           "subjects": json.loads(d.subjects),
+           "intact": hashlib.sha256(d.content.encode("utf-8")).hexdigest() == d.content_hash}
+    if internal:
+        out["withheld"] = json.loads(d.withheld_internal)
+    return out
+
+
+@reports_router.get("/{report_id}/disclosure-parties")
+def disclosure_parties(report_id: int, case_id: Optional[int] = None, db: Session = Depends(get_db),
+                       user=Depends(get_current_user)):
+    """Parties of the case for choosing the report's subjects; account holders are the default subjects."""
+    from app.findings import disclosure
+    case = _case(db, user, case_id, "reviewer")
+    _report(db, case.id, report_id)
+    parties, holders = disclosure.case_parties(db, case.id)
+    return {"parties": [{"id": p["id"], "name": p["display"], "kind": p["kind"], "default_subject": p["id"] in holders}
+                        for p in parties]}
+
+
+@reports_router.post("/{report_id}/disclosures")
+def create_disclosure(report_id: int, body: DisclosureBody, case_id: Optional[int] = None,
+                      db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """A copy of the frozen report for a recipient, with third-party personal data withheld and every withheld item
+    listed with its reason (SBI v. Amit Iron, 2026, para 126(e)). The frozen report itself is not changed."""
+    from app.core import audit
+    from app.database.models import ReportDisclosure
+    from app.findings import disclosure
+    case = _case(db, user, case_id, "reviewer")
+    r = _report(db, case.id, report_id)
+    if hashlib.sha256(r.snapshot.encode("utf-8")).hexdigest() != r.content_hash:
+        raise HTTPException(status_code=409, detail="The frozen report failed its integrity check")
+    parties, holders = disclosure.case_parties(db, case.id)
+    known = {p["id"] for p in parties}
+    subjects = set(body.subject_party_ids) & known if body.subject_party_ids is not None else holders
+    now = datetime.utcnow().replace(microsecond=0)
+    content, digest, internal = disclosure.make(json.loads(r.snapshot), r.content_hash, parties, subjects,
+                                                body.recipient.strip(), now.isoformat())
+    d = ReportDisclosure(tenant_id=user.tenant_id, report_id=r.id, recipient=body.recipient.strip(),
+                         subjects=json.dumps([{"id": p["id"], "name": p["display"]} for p in parties
+                                              if p["id"] in subjects], ensure_ascii=False),
+                         withheld_internal=json.dumps(internal, ensure_ascii=False),
+                         content=service.canonical(content), content_hash=digest, base_hash=r.content_hash,
+                         created_by=user.id, created_at=now)
+    db.add(d)
+    db.flush()
+    audit.record(db, user.tenant_id, user.id, "report.disclosure.create", "report", r.id,
+                 {"disclosure_id": d.id, "recipient": d.recipient, "content_hash": digest,
+                  "withheld": [{k: w[k] for k in ("label", "kind", "occurrences")} for w in internal]})
+    db.commit()
+    return _disclosure_view(d)
+
+
+@reports_router.get("/{report_id}/disclosures")
+def list_disclosures(report_id: int, case_id: Optional[int] = None, db: Session = Depends(get_db),
+                     user=Depends(get_current_user)):
+    from app.database.models import ReportDisclosure
+    case = _case(db, user, case_id, "reviewer")
+    r = _report(db, case.id, report_id)
+    rows = db.query(ReportDisclosure).filter(ReportDisclosure.report_id == r.id) \
+        .order_by(ReportDisclosure.created_at.desc()).all()
+    return {"report_id": r.id, "disclosures": [_disclosure_view(d) for d in rows]}
+
+
+@reports_router.get("/{report_id}/disclosures/{disclosure_id}/export")
+def export_disclosure(report_id: int, disclosure_id: int, case_id: Optional[int] = None,
+                      db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """The disclosed copy exactly as hashed (X-Content-SHA256)."""
+    from app.database.models import ReportDisclosure
+    case = _case(db, user, case_id, "reviewer")
+    r = _report(db, case.id, report_id)
+    d = db.query(ReportDisclosure).filter(ReportDisclosure.report_id == r.id,
+                                          ReportDisclosure.id == disclosure_id).first()
+    if d is None:
+        raise HTTPException(status_code=404, detail="disclosure not found")
+    name = f"minddoc-report-{r.id}-disclosure-{d.id}.json"
+    return Response(content=d.content.encode("utf-8"), media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"',
+                             "X-Content-SHA256": d.content_hash, "Access-Control-Expose-Headers": "X-Content-SHA256"})
+
+
+@reports_router.get("/{report_id}/bundle")
+def evidence_bundle(report_id: int, disclosure_id: Optional[int] = None, case_id: Optional[int] = None,
+                    db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Evidence bundle (zip): the report or disclosure as hashed, page regions of every cited row, sources and a
+    SHA-256 manifest. Disclosure bundles black out withheld text and never include whole pages."""
+    from app.database.models import ReportDisclosure
+    from app.findings import bundle
+    case = _case(db, user, case_id, "reviewer" if disclosure_id is not None else "viewer")
+    r = _report(db, case.id, report_id)
+    d = None
+    if disclosure_id is not None:
+        d = db.query(ReportDisclosure).filter(ReportDisclosure.report_id == r.id,
+                                              ReportDisclosure.id == disclosure_id).first()
+        if d is None:
+            raise HTTPException(status_code=404, detail="disclosure not found")
+    data, name = bundle.build(db, r, d)
+    return Response(content=data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"',
+                             "X-Content-SHA256": hashlib.sha256(data).hexdigest(),
+                             "Access-Control-Expose-Headers": "X-Content-SHA256"})

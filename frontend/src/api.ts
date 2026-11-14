@@ -45,6 +45,8 @@ import type {
   ReportView,
   CaseDetail,
   CaseRole,
+  DisclosureParty,
+  DisclosureView,
   CaseSummary,
   TeamInvite,
   TeamMember,
@@ -431,6 +433,21 @@ export const reportsApi = {
     api.post<ReportView>('/reports', { title, finding_ids: findingIds }).then((r) => r.data),
   /** The frozen snapshot exactly as hashed. */
   export: (id: number) => api.get<Blob>(`/reports/${id}/export`, { responseType: 'blob' }).then((r) => r.data),
+  /** Evidence bundle (zip); with a disclosure id, the redacted bundle for that recipient. */
+  bundle: (id: number, disclosureId?: number) =>
+    api
+      .get<Blob>(`/reports/${id}/bundle`, { params: { disclosure_id: disclosureId }, responseType: 'blob', timeout: 180_000 })
+      .then((r) => r.data),
+  disclosureParties: (id: number) =>
+    api.get<{ parties: DisclosureParty[] }>(`/reports/${id}/disclosure-parties`).then((r) => r.data.parties),
+  disclosures: (id: number) =>
+    api.get<{ disclosures: DisclosureView[] }>(`/reports/${id}/disclosures`).then((r) => r.data.disclosures),
+  disclose: (id: number, recipient: string, subjectPartyIds: number[]) =>
+    api
+      .post<DisclosureView>(`/reports/${id}/disclosures`, { recipient, subject_party_ids: subjectPartyIds })
+      .then((r) => r.data),
+  exportDisclosure: (id: number, disclosureId: number) =>
+    api.get<Blob>(`/reports/${id}/disclosures/${disclosureId}/export`, { responseType: 'blob' }).then((r) => r.data),
 };
 
 /** Cases (engagements) and their members (ADR-0012). Case ids are explicit here, never the selected case. */

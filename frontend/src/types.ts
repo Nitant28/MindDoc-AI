@@ -811,6 +811,50 @@ export interface FindingView {
   stale?: boolean;
   support: FindingSupportView[];
   history?: Array<{ id: number; version: number; status: FindingStatus; change_note: string | null; created_at: string; superseded_at: string | null }>;
+  /** Leave-one-source-out fragility (R8): on the finding page, and frozen into reports issued since R8. */
+  robustness?: Robustness;
+}
+
+export interface Robustness {
+  method: string;
+  bound_type: 'exact' | 'upper' | 'lower';
+  /** fewest independent sources whose removal leaves a supporting claim without evidence */
+  k_fragility: number | null;
+  loso_score: number;
+  essential_sources: string[];
+  responsibility: Record<string, number>;
+  sources: Record<string, Array<{ document_id: number; filename: string | null }>>;
+  facts: Array<{
+    claim_id: number;
+    providers: string[];
+    own_source: string | null;
+    corroborated_by: Array<{ claim_id: number; document_id: number; source: string }>;
+    status: string | null;
+  }>;
+  contradicting_claims: number[];
+  notes: string[];
+  explanation: string;
+}
+
+export interface DisclosureParty {
+  id: number;
+  name: string;
+  kind: 'org' | 'person' | 'unknown';
+  default_subject: boolean;
+}
+
+export interface DisclosureView {
+  id: number;
+  report_id: number;
+  recipient: string;
+  created_at: string;
+  created_by: number | null;
+  content_hash: string;
+  base_hash: string;
+  subjects: Array<{ id: number; name: string }>;
+  intact: boolean;
+  /** issuer-only log: what was withheld, with the original values */
+  withheld: Array<{ label: string; kind: string; reason: string; occurrences: number; values: string[] }>;
 }
 
 export interface FindingSummary {

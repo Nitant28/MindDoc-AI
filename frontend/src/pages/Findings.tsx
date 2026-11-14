@@ -12,7 +12,7 @@ import { Spinner } from '../components/ui/Spinner';
 import { useToast } from '../components/ui/Toast';
 import { formatMinor, type Tone } from '../lib/format';
 import { useTitle } from '../lib/useTitle';
-import type { FindingStatus, FindingSummary, FindingView, ReportSummary, ReportView } from '../types';
+import type { DisclosureParty, DisclosureView, FindingStatus, FindingSummary, FindingView, ReportSummary, ReportView, Robustness } from '../types';
 
 const STATUS_TONE: Record<FindingStatus, Tone> = { draft: 'neutral', proposed: 'info', approved: 'success', rejected: 'danger' };
 
@@ -30,6 +30,61 @@ const NEXT: Record<FindingStatus, Array<{ to: FindingStatus; label: string }>> =
 
 function short(hash: string | null | undefined): string {
   return hash ? `${hash.slice(0, 10)}…` : '—';
+}
+
+function saveBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Which sources the finding stands or falls on (leave-one-source-out, exact lineage). */
+function RobustnessPanel({ r }: { r: Robustness }) {
+  const k = r.k_fragility;
+  const tone = k == null ? 'danger' : k === 1 ? 'warning' : 'success';
+  return (
+    <div className="rounded-lg border border-line p-3">
+      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+        <h3 className="font-semibold uppercase tracking-wider text-subtle">Robustness</h3>
+        <Badge tone={tone}>
+          {k == null ? 'cannot be assessed' : k === 1 ? 'rests on one source' : `needs ${k} sources removed to fail`}
+        </Badge>
+        <span className="text-subtle">{r.method}</span>
+      </div>
+      <p className="text-muted">{r.explanation}</p>
+      <ul className="mt-2 space-y-1">
+        {Object.entries(r.sources).map(([label, docs]) => (
+          <li key={label} className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-fg">{label}</span>
+            {r.essential_sources.includes(label) ? <Badge tone="warning">essential</Badge> : null}
+            <span className="text-subtle">responsibility {r.responsibility[label] ?? 0}</span>
+            <span className="min-w-0 truncate text-muted">
+              {docs.map((d) => d.filename ?? `document ${d.document_id}`).join(' + ')}
+              {docs.length > 1 ? ' (copies of one source)' : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {r.facts.some((f) => f.corroborated_by.length) ? (
+        <p className="mt-2 text-muted">
+          Corroborated: claim{' '}
+          {r.facts
+            .filter((f) => f.corroborated_by.length)
+            .map((f) => `${f.claim_id} (also in ${f.corroborated_by.map((c) => c.source).join(', ')})`)
+            .join(', ')}
+          .
+        </p>
+      ) : null}
+      {r.notes.map((n) => (
+        <p key={n} className="mt-1 text-amber-700 dark:text-amber-300">
+          {n}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 function FindingDetail({ f, onChanged, onOpen }: { f: FindingView; onChanged: (f: FindingView) => void; onOpen: (id: number) => void }) {
@@ -94,6 +149,8 @@ function FindingDetail({ f, onChanged, onOpen }: { f: FindingView; onChanged: (f
           ))}
         </div>
       ) : null}
+
+      {f.robustness ? <RobustnessPanel r={f.robustness} /> : null}
 
       <div>
         <h3 className="mb-1.5 font-semibold uppercase tracking-wider text-subtle">Evidence relied on</h3>
@@ -174,17 +231,131 @@ function FindingDetail({ f, onChanged, onOpen }: { f: FindingView; onChanged: (f
   );
 }
 
+function Disclosures({ r }: { r: ReportView }) {
+  const toast = useToast();
+  const [items, setItems] = useState<DisclosureView[] | null>(null);
+  const [parties, setParties] = useState<DisclosureParty[]>([]);
+  const [subjects, setSubjects] = useState<Set<number>>(new Set());
+  const [recipient, setRecipient] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [denied, setDenied] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([reportsApi.disclosures(r.id), reportsApi.disclosureParties(r.id)])
+      .then(([d, p]) => {
+        setItems(d);
+        setParties(p);
+        setSubjects(new Set(p.filter((x) => x.default_subject).map((x) => x.id)));
+      })
+      .catch((e) => setDenied(errorMessage(e)));
+  }, [r.id]);
+
+  const create = async () => {
+    setBusy(true);
+    try {
+      const d = await reportsApi.disclose(r.id, recipient.trim(), [...subjects]);
+      setItems((cur) => [d, ...(cur ?? [])]);
+      setRecipient('');
+      toast.success('Disclosure copy made', `${d.withheld.length} kind(s) of item withheld; the report itself is unchanged.`);
+    } catch (e) {
+      toast.error('Not made', errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (denied) return <p className="text-subtle">Disclosure copies: {denied}</p>;
+  if (!items) return <Spinner />;
+  const people = parties.filter((p) => p.kind !== 'org');
+  return (
+    <div className="space-y-3 rounded-lg border border-line p-3">
+      <h3 className="font-semibold uppercase tracking-wider text-subtle">Disclosure copies</h3>
+      <p className="text-muted">
+        A copy for a recipient (for example the borrower, under SBI v. Amit Iron, 2026) with third parties&apos; personal data
+        withheld and every withheld item listed with its reason. Organisations and the subjects you tick stay visible.
+      </p>
+      {people.length > 0 && (
+        <fieldset>
+          <legend className="mb-1 text-subtle">Subjects of the report (not withheld)</legend>
+          <div className="flex max-h-32 flex-wrap gap-x-4 gap-y-1 overflow-auto">
+            {people.map((p) => (
+              <label key={p.id} className="flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  aria-label={`Subject: ${p.name} (party ${p.id})`}
+                  checked={subjects.has(p.id)}
+                  onChange={(e) =>
+                    setSubjects((cur) => {
+                      const next = new Set(cur);
+                      if (e.target.checked) next.add(p.id);
+                      else next.delete(p.id);
+                      return next;
+                    })
+                  }
+                />
+                {p.name}
+                <span className="text-subtle">
+                  ({p.kind} · party {p.id})
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Recipient" htmlFor={`recipient-${r.id}`} className="min-w-[14rem] flex-1">
+          <Input id={`recipient-${r.id}`} value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="e.g. Borrower's counsel" />
+        </Field>
+        <Button size="sm" variant="primary" loading={busy} disabled={recipient.trim().length < 3} onClick={() => void create()}>
+          Make disclosure copy
+        </Button>
+      </div>
+      {items.map((d) => (
+        <div key={d.id} className="rounded-md border border-line p-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-fg">{d.recipient}</span>
+            <span className="text-subtle">{new Date(d.created_at).toLocaleString()}</span>
+            <Badge tone={d.intact ? 'success' : 'danger'}>{d.intact ? 'intact' : 'hash mismatch'}</Badge>
+            <span className="font-mono text-[10px] text-subtle" title={d.content_hash}>
+              sha256 {short(d.content_hash)}
+            </span>
+            <Button size="xs" onClick={() => void reportsApi.exportDisclosure(r.id, d.id).then((b) => saveBlob(b, `minddoc-report-${r.id}-disclosure-${d.id}.json`)).catch((e) => toast.error('Download failed', errorMessage(e)))}>
+              JSON
+            </Button>
+            <Button size="xs" onClick={() => void reportsApi.bundle(r.id, d.id).then((b) => saveBlob(b, `minddoc-report-${r.id}-disclosure-${d.id}.zip`)).catch((e) => toast.error('Download failed', errorMessage(e)))}>
+              Evidence bundle
+            </Button>
+          </div>
+          {d.withheld.length ? (
+            <ul className="mt-1.5 space-y-0.5 text-muted">
+              {d.withheld.map((w) => (
+                <li key={w.label}>
+                  <span className="text-fg">{w.label}</span> ({w.kind}, {w.occurrences}×): {w.reason}
+                  <span className="text-subtle"> · withheld: {w.values.join(', ')}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-subtle">Nothing needed withholding.</p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ReportDetail({ r }: { r: ReportView }) {
   const toast = useToast();
   const download = async () => {
     try {
-      const blob = await reportsApi.export(r.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `minddoc-report-${r.id}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlob(await reportsApi.export(r.id), `minddoc-report-${r.id}.json`);
+    } catch (e) {
+      toast.error('Download failed', errorMessage(e));
+    }
+  };
+  const bundle = async () => {
+    try {
+      saveBlob(await reportsApi.bundle(r.id), `minddoc-report-${r.id}.zip`);
     } catch (e) {
       toast.error('Download failed', errorMessage(e));
     }
@@ -200,6 +371,9 @@ function ReportDetail({ r }: { r: ReportView }) {
         <Button size="xs" icon="external" onClick={() => void download()}>
           Download snapshot
         </Button>
+        <Button size="xs" icon="layers" onClick={() => void bundle()}>
+          Evidence bundle
+        </Button>
       </div>
       {r.new_evidence_since_report.length ? (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
@@ -211,6 +385,11 @@ function ReportDetail({ r }: { r: ReportView }) {
         <div key={f.id} className="rounded-lg border border-line p-2">
           <div className="font-medium text-fg">
             {f.title} <span className="text-subtle">(version {f.version})</span>
+            {f.robustness?.k_fragility === 1 ? (
+              <span className="ml-2">
+                <Badge tone="warning">rests on one source</Badge>
+              </span>
+            ) : null}
           </div>
           <p className="mt-1 whitespace-pre-wrap text-muted">{f.statement}</p>
           <p className="mt-1 text-subtle">
@@ -219,6 +398,7 @@ function ReportDetail({ r }: { r: ReportView }) {
           </p>
         </div>
       ))}
+      <Disclosures r={r} />
     </div>
   );
 }
