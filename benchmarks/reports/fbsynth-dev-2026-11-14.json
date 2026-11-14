@@ -1,0 +1,191 @@
+{
+  "benchmark": "fb-synth-v0",
+  "split": "dev",
+  "cases": 40,
+  "detectors_version": "r7.1",
+  "scheme_recall": 0.983,
+  "scheme_recall_ci95": [
+    0.962,
+    0.993
+  ],
+  "schemes": 302,
+  "recall_by_family": {
+    "duplicate_payment": {
+      "found": 40,
+      "of": 40
+    },
+    "end_use": {
+      "found": 57,
+      "of": 62
+    },
+    "pass_through": {
+      "found": 40,
+      "of": 40
+    },
+    "round_trip_2hop": {
+      "found": 40,
+      "of": 40
+    },
+    "round_trip_3hop": {
+      "found": 40,
+      "of": 40
+    },
+    "structuring_cluster": {
+      "found": 22,
+      "of": 22
+    },
+    "structuring_split": {
+      "found": 18,
+      "of": 18
+    },
+    "window_dressing": {
+      "found": 40,
+      "of": 40
+    }
+  },
+  "false_flags_per_10_benign": 1.09,
+  "benign_flagged_share_ci95": [
+    0.08,
+    0.148
+  ],
+  "benign": 320,
+  "benign_flagged_by_family": {
+    "cash_takings": {
+      "flagged": 1,
+      "of": 40
+    },
+    "disbursement_to_suppliers": {
+      "flagged": 12,
+      "of": 40
+    },
+    "loan_repaid": {
+      "flagged": 3,
+      "of": 40
+    },
+    "quarter_end_collection": {
+      "flagged": 2,
+      "of": 40
+    },
+    "refund": {
+      "flagged": 3,
+      "of": 40
+    },
+    "sweep": {
+      "flagged": 0,
+      "of": 40
+    },
+    "trading_margin": {
+      "flagged": 14,
+      "of": 40
+    },
+    "two_invoices": {
+      "flagged": 0,
+      "of": 40
+    }
+  },
+  "background_false_flags": 51,
+  "background_txns": 10022,
+  "background_false_flags_per_1000_txns": 5.09,
+  "evidence_completeness_mean": 0.962,
+  "misses": [
+    {
+      "family": "end_use",
+      "best_overlap": 0.4
+    },
+    {
+      "family": "end_use",
+      "best_overlap": 0.43
+    },
+    {
+      "family": "end_use",
+      "best_overlap": 0.29
+    },
+    {
+      "family": "end_use",
+      "best_overlap": 0.33
+    },
+    {
+      "family": "end_use",
+      "best_overlap": 0.2
+    }
+  ],
+  "benign_flagged_examples": [
+    {
+      "family": "loan_repaid",
+      "by": [
+        "round_trip"
+      ]
+    },
+    {
+      "family": "disbursement_to_suppliers",
+      "by": [
+        "round_trip"
+      ]
+    },
+    {
+      "family": "trading_margin",
+      "by": [
+        "round_trip"
+      ]
+    },
+    {
+      "family": "trading_margin",
+      "by": [
+        "round_trip"
+      ]
+    },
+    {
+      "family": "trading_margin",
+      "by": [
+        "round_trip"
+      ]
+    },
+    {
+      "family": "refund",
+      "by": [
+        "window_dressing"
+      ]
+    },
+    {
+      "family": "disbursement_to_suppliers",
+      "by": [
+        "end_use"
+      ]
+    },
+    {
+      "family": "trading_margin",
+      "by": [
+        "round_trip"
+      ]
+    },
+    {
+      "family": "disbursement_to_suppliers",
+      "by": [
+        "end_use"
+      ]
+    },
+    {
+      "family": "trading_margin",
+      "by": [
+        "round_trip"
+      ]
+    },
+    {
+      "family": "disbursement_to_suppliers",
+      "by": [
+        "end_use"
+      ]
+    },
+    {
+      "family": "refund",
+      "by": [
+        "round_trip"
+      ]
+    }
+  ],
+  "meta": {
+    "commit": "fbd3ab0",
+    "dirty": true,
+    "date": "2026-11-14"
+  }
+}

@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Callable, Optional
 
-VERSION = "r7.0"
+VERSION = "r7.1"
 
 # narrations that explain a movement as ordinary banking, not a transfer between parties
 _SWEEP = re.compile(r"\b(sweep|auto\s*sweep|f\.?d\.?|fixed\s*deposit|term\s*deposit|t\.?d\.?\s*(open|clos|matur)|"
@@ -83,9 +83,10 @@ DEFAULTS: dict[str, dict] = {
                 "min_amount_minor": 5_00_000_00},
     "round_trip": {"window_days": 30, "max_hops": 4, "min_ratio": 0.8, "max_ratio": 1.05,
                    "min_amount_minor": 1_00_000_00, "two_hop_min_amount_minor": 5_00_000_00,
-                   "two_hop_window_days": 15},
+                   "two_hop_window_days": 15, "two_hop_min_ratio": 0.9, "two_hop_max_ratio": 1.0,
+                   "hop_min_ratio": 0.85, "hop_max_ratio": 1.05, "max_gap_days": 10},
     "structuring": {"thresholds_minor": [50_000_00, 10_00_000_00], "band": 0.10, "min_count": 3,
-                    "window_days": 30, "min_cluster_share": 0.5, "split_min_days": 2},
+                    "window_days": 30, "max_p_value": 0.01, "split_min_days": 2},
     "pass_through": {"max_lag_days": 2, "tolerance": 0.02, "min_amount_minor": 1_00_000_00, "min_events": 3,
                      "window_days": 60},
     "duplicate_payment": {"window_days": 7, "min_amount_minor": 10_000_00},
@@ -144,41 +145,39 @@ def _lead(detector: str, txns: list[Txn], summary: str, amount: int, details: di
 # --------------------------------------------------------------------------------------------- end_use (D1)
 
 def end_use(case: CaseData, p: dict) -> list[Lead]:
-    """For each disbursement-like credit, the debits from the same account in the next N days are counted against it
-    in date order until it is used up ("disbursement-first" attribution, stated in every lead). A lead when the share
-    paid to group or related parties reaches `min_share` and `min_amount_minor`."""
+    """For each disbursement-like credit, the payments from the same account to group or related parties in the next
+    N days, up to the disbursed amount. A payment counts only against the latest disbursement before it (stated in
+    every lead). A lead when that total reaches `min_share` of the disbursement and `min_amount_minor`."""
     out = []
     by_account: dict[str, list[Txn]] = defaultdict(list)
     for t in case.txns:
         by_account[t.account].append(t)
     for acct, txns in by_account.items():
         txns.sort(key=lambda t: (t.date, t.seq or 0))
-        for d in txns:
-            if d.direction != "credit" or d.amount_minor < p["min_disbursement_minor"] \
-                    or not _DISBURSEMENT.search(d.narration or ""):
-                continue
-            remaining, used = d.amount_minor, []
+        disb = [t for t in txns if t.direction == "credit" and t.amount_minor >= p["min_disbursement_minor"]
+                and _DISBURSEMENT.search(t.narration or "")]
+        for i, d in enumerate(disb):
+            nxt = disb[i + 1] if i + 1 < len(disb) else None
+            end = d.date + timedelta(days=p["window_days"])
+            linked = []
             for t in txns:
-                if t.direction != "debit" or t.date < d.date or t.date > d.date + timedelta(days=p["window_days"]):
+                if t.direction != "debit" or (t.date, t.seq or 0) <= (d.date, d.seq or 0) or t.date > end:
                     continue
-                if (t.date, t.seq or 0) <= (d.date, d.seq or 0) or remaining <= 0:
-                    continue
-                share = min(remaining, t.amount_minor)
-                remaining -= share
-                used.append((t, share))
-            linked = [(t, a) for t, a in used if t.counterparty and t.counterparty != d.holder
-                      and (t.counterparty in case.related or t.counterparty in case.group)]
-            to_linked = sum(a for _, a in linked)
+                if nxt is not None and (t.date, t.seq or 0) > (nxt.date, nxt.seq or 0):
+                    continue  # belongs to the next disbursement
+                if t.counterparty and t.counterparty != d.holder and \
+                        (t.counterparty in case.related or t.counterparty in case.group):
+                    linked.append(t)
+            to_linked = min(d.amount_minor, sum(t.amount_minor for t in linked))
             if to_linked >= p["min_amount_minor"] and to_linked >= p["min_share"] * d.amount_minor:
-                cash = sum(a for t, a in used if t.channel == "CASH")
-                parties = sorted({t.counterparty for t, _ in linked})
+                parties = sorted({t.counterparty for t in linked})
                 summary = (f"{_inr(d.amount_minor)} credited on {d.date.isoformat()} as a loan disbursement; within "
                            f"{p['window_days']} days {_inr(to_linked)} ({to_linked / d.amount_minor:.0%}) went to "
                            f"{', '.join(_name(case, x) for x in parties)}, marked as group or related.")
-                out.append(_lead("end_use", [d] + [t for t, _ in linked], summary, to_linked, {
-                    "disbursement": d.key, "attribution": "disbursement-first: later debits counted against the "
-                    "credit in date order until it is used up", "to_group_or_related_minor": to_linked,
-                    "cash_withdrawn_minor": cash, "unattributed_minor": max(0, remaining),
+                out.append(_lead("end_use", [d] + linked, summary, to_linked, {
+                    "disbursement": d.key, "attribution": "payments to group or related parties within the window "
+                    "after the disbursement and before the next one, up to the disbursed amount",
+                    "to_group_or_related_minor": to_linked,
                     "parties": [{"party": x, "name": _name(case, x), "related": x in case.related,
                                  "group_account_holder": x in case.group} for x in parties]}))
     return out
@@ -232,7 +231,14 @@ def round_trip(case: CaseData, p: dict) -> list[Lead]:
         for e in out_by.get(last.dst, []):
             if e.date < last.date or e.date > first.date + timedelta(days=p["window_days"]):
                 continue
-            if not (p["min_ratio"] * first.amount_minor <= e.amount_minor <= p["max_ratio"] * first.amount_minor):
+            # money passed on through intermediaries keeps roughly its size and moves on quickly
+            if not two_hop and ((e.date - last.date).days > p["max_gap_days"] or not (
+                    p["hop_min_ratio"] * last.amount_minor <= e.amount_minor <= p["hop_max_ratio"] * last.amount_minor)):
+                continue
+            closes = e.dst == first.src
+            lo, hi = (p["two_hop_min_ratio"], p["two_hop_max_ratio"]) if (two_hop and closes) else \
+                (p["min_ratio"], p["max_ratio"])
+            if not (lo * first.amount_minor <= e.amount_minor <= hi * first.amount_minor):
                 continue
             if e in path:
                 continue
@@ -300,13 +306,17 @@ def structuring(case: CaseData, p: dict) -> list[Lead]:
                 start, end = best[0].date, best[-1].date
                 wider = [x for x in deps if thr // 2 <= x.amount_minor <= thr and start <= x.date <= end]
                 share = len(best) / max(1, len(wider))
-                if share >= p["min_cluster_share"]:
+                # under an even spread of amounts between half the threshold and the threshold, the band holds
+                # band / 0.5 of them; how unlikely is a cluster this large?
+                p_value = _binom_tail(len(best), len(wider), p["band"] / 0.5)
+                if p_value <= p["max_p_value"]:
                     summary = (f"{len(best)} cash deposits between {_inr(lo)} and {_inr(thr)} from {start.isoformat()} "
                                f"to {end.isoformat()}: {share:.0%} of deposits between {_inr(thr // 2)} and {_inr(thr)} "
                                f"in that period sit in the top {p['band']:.0%} just below {_inr(thr)}.")
                     out.append(_lead("structuring", best, summary, sum(x.amount_minor for x in best), {
                         "pattern": "cluster_below_threshold", "threshold_minor": thr, "band": p["band"],
-                        "count": len(best), "cluster_share": round(share, 3)}))
+                        "count": len(best), "cluster_share": round(share, 3), "p_value": float(f"{p_value:.3g}"),
+                        "test": "binomial tail against an even spread between half the threshold and the threshold"}))
             # (b) the same day split into several deposits each below the threshold that together exceed it
             by_day: dict[date, list[Txn]] = defaultdict(list)
             for t in deps:
@@ -389,6 +399,12 @@ def duplicate_payment(case: CaseData, p: dict) -> list[Lead]:
 
 
 # ------------------------------------------------------------------------------------- window_dressing (D6)
+
+def _binom_tail(k: int, n: int, p0: float) -> float:
+    """P(X >= k) for X ~ Binomial(n, p0)."""
+    from math import comb
+    return sum(comb(n, i) * p0 ** i * (1 - p0) ** (n - i) for i in range(k, n + 1))
+
 
 def _quarter_end(d: date) -> date:
     q_month = ((d.month - 1) // 3 + 1) * 3
