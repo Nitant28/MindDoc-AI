@@ -142,3 +142,19 @@ removed (ADR-0006), R8 fragility, disclosure copies and evidence bundles; owner-
 - **Rollback:** redeploy `2ceb33c` (the previous `main`) from the Render dashboard.
   - On SQLite the schema is recreated, so there is nothing to reverse.
   - On PostgreSQL, downgrade to `0008` first: this drops `case_members`, `tenant_invites` and `report_disclosures`.
+
+**2026-11-14 (evening): `main` = `bd04ab5`** (merge of `consolidate/v2-base`: R7 detectors and discovery ledger, the UI
+redesign; owner-approved).
+- **Render** served the new build about 1.5 minutes after the push.
+  - The discovery routes are in the API schema (72 paths); protected routes and `POST /api/discoveries/run` answer
+    401 without a token.
+  - `/discoveries` and the new frontend are served.
+  - The health version still reads 2.2.0: it was not bumped for this release.
+- **CI on `main`:** backend, backend-postgres, frontend and Docker all green.
+- **Vercel:** `mind-doc-ai`, `mind-doc-ai-lxft` and `mind-doc-ai-msb6` serve the new frontend about 5 minutes after the
+  push and proxy `/api` to the new build. `mind-doc-ai-ny1m` still returns 500 (owner action, unchanged).
+- **Not done:** no production account or data was created.
+- **Known limits:** the free plan reset the SQLite database and uploads again.
+- **Rollback:** redeploy `e808bc3` from the Render dashboard.
+  - On SQLite there is nothing to reverse.
+  - On PostgreSQL, downgrade to `0010` first: this drops `discoveries`, `discovery_runs` and `party_tags`.
